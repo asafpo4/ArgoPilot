@@ -49,3 +49,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** the task says a farm name must be non-empty, but does not say what "empty" means.
 - **Decided:** strip spaces at the start and end of the name. A name that is empty after stripping is rejected with 422.
 - **Why:** a name of only spaces cannot be read or found in a list, so it is empty in practice. Spaces at the edges are not part of the name.
+
+## 9. What PATCH does with an empty body or a null name
+
+- **Suggested:** the task says PATCH changes only the fields sent, but does not say what an empty body or a null name should do.
+- **Decided:** an empty body returns 200 with no change. A null name returns 422.
+- **Why:** "change only what was sent" means nothing changes when nothing is sent, which is harmless. A farm must always have a name, so null is invalid.

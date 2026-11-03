@@ -3,23 +3,37 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import AfterValidator, BaseModel, field_validator
 
 from db import get_db
 
 router = APIRouter(prefix="/v1")
 
 
-class FarmCreate(BaseModel):
-    name: str
+def strip_and_require_name(value: str) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError("name must not be empty")
+    return stripped
 
-    @field_validator("name")
+
+# The farm name rule, shared by the create and update models.
+FarmName = Annotated[str, AfterValidator(strip_and_require_name)]
+
+
+class FarmCreate(BaseModel):
+    name: FarmName
+
+
+class FarmUpdate(BaseModel):
+    name: FarmName | None = None
+
+    @field_validator("name", mode="before")
     @classmethod
-    def strip_and_require_name(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("name must not be empty")
-        return stripped
+    def name_is_not_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("name must not be null")
+        return value
 
 
 @router.get("/farms")
@@ -42,3 +56,17 @@ def create_farm(body: FarmCreate, conn: Annotated[sqlite3.Connection, Depends(ge
     conn.execute("INSERT INTO farms (id, name) VALUES (?, ?)", (farm_id, body.name))
     conn.commit()
     return {"id": farm_id, "name": body.name}
+
+
+@router.patch("/farms/{farm_id}")
+def update_farm(
+    farm_id: str, body: FarmUpdate, conn: Annotated[sqlite3.Connection, Depends(get_db)]
+) -> dict[str, str]:
+    if conn.execute("SELECT 1 FROM farms WHERE id = ?", (farm_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    changes = body.model_dump(exclude_unset=True)
+    if "name" in changes:
+        conn.execute("UPDATE farms SET name = ? WHERE id = ?", (changes["name"], farm_id))
+        conn.commit()
+    row = conn.execute("SELECT id, name FROM farms WHERE id = ?", (farm_id,)).fetchone()
+    return dict(row)
