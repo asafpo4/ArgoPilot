@@ -1,3 +1,4 @@
+import sqlite3
 from http import HTTPStatus
 
 from fastapi import Request
@@ -33,11 +34,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     return problem_response(exc.status_code, code, str(exc.detail), exc.headers)
 
 
-async def validation_exception_handler(
-    request: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     details = "; ".join(
         f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-        for error in exc.errors()
-    )
+        for error in exc.errors())
     return problem_response(422, "VALIDATION", details)
+
+
+async def database_unavailable_handler(request: Request, exc: sqlite3.OperationalError) -> JSONResponse:
+    # The raw sqlite message is not sent to the client.
+    return problem_response(503, "UNAVAILABLE", "Database unavailable", {"Retry-After": "5"})

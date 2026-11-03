@@ -30,3 +30,13 @@ def test_delete_on_catalogue_returns_405_with_allow_header(client: TestClient) -
     assert response.headers["content-type"] == "application/problem+json"
     assert "allow" in response.headers
     assert response.json()["code"] == "VALIDATION"
+
+
+def test_database_unavailable_returns_503_with_retry_after(unavailable_client: TestClient) -> None:
+    response = unavailable_client.get("/v1/crops")
+
+    assert response.status_code == 503
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.headers["retry-after"] == "5"
+    assert response.json()["code"] == "UNAVAILABLE"
+    assert response.json()["detail"] == "Database unavailable"

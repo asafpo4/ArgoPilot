@@ -37,3 +37,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** pytest warns that using httpx with `TestClient` is deprecated, and suggests `httpx2`. The user asked whether to switch.
 - **Decided:** keep httpx.
 - **Why:** the warning does not break anything, the course plan uses httpx, and switching adds a new dependency with no benefit right now.
+
+## 7. Map every sqlite3.OperationalError to 503
+
+- **Suggested:** `sqlite3.OperationalError` covers both "database unavailable" (missing file, locked file) and code bugs (like a missing table). Options: map all of it to 503, or split the cases.
+- **Decided:** map all `sqlite3.OperationalError` to 503 `UNAVAILABLE`.
+- **Why:** simple and in one place. The bug cases only happen when the code is wrong, and the tests catch them before submission. A missing or broken database file really is "unavailable".
