@@ -10,9 +10,11 @@ from errors import (
     http_exception_handler,
     validation_exception_handler,
 )
+from farms import router as farms_router
 
 app = FastAPI(title="AgroPilot registry-service", version="0.1.0")
 app.include_router(catalogues_router)
+app.include_router(farms_router)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(sqlite3.OperationalError, database_unavailable_handler)
