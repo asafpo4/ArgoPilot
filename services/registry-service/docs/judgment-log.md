@@ -43,3 +43,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** `sqlite3.OperationalError` covers both "database unavailable" (missing file, locked file) and code bugs (like a missing table). Options: map all of it to 503, or split the cases.
 - **Decided:** map all `sqlite3.OperationalError` to 503 `UNAVAILABLE`.
 - **Why:** simple and in one place. The bug cases only happen when the code is wrong, and the tests catch them before submission. A missing or broken database file really is "unavailable".
+
+## 8. What counts as an empty farm name
+
+- **Suggested:** the task says a farm name must be non-empty, but does not say what "empty" means.
+- **Decided:** strip spaces at the start and end of the name. A name that is empty after stripping is rejected with 422.
+- **Why:** a name of only spaces cannot be read or found in a list, so it is empty in practice. Spaces at the edges are not part of the name.
