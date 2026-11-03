@@ -21,3 +21,22 @@ def get_crop(crop_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)])
         # Temporary: replaced by the problem+json error format in the errors step.
         raise HTTPException(status_code=404, detail="Crop not found")
     return dict(row)
+
+
+@router.get("/soils")
+def list_soils(conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> list[dict[str, str | int]]:
+    rows = conn.execute(
+        "SELECT id, name, available_water_mm_per_m FROM soils ORDER BY id"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@router.get("/soils/{soil_id}")
+def get_soil(soil_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> dict[str, str | int]:
+    row = conn.execute(
+        "SELECT id, name, available_water_mm_per_m FROM soils WHERE id = ?", (soil_id,)
+    ).fetchone()
+    if row is None:
+        # Temporary: replaced by the problem+json error format in the errors step.
+        raise HTTPException(status_code=404, detail="Soil not found")
+    return dict(row)
