@@ -25,3 +25,15 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** commit after each step.
 - **Decided:** commit is done locally. Publishing (push to GitHub) waits until the user asks for it.
 - **Why:** a push is visible to anyone with repo access and is hard to undo. Local commits are enough to keep history.
+
+## 5. Which `code` to use for 405 Method Not Allowed
+
+- **Suggested:** the task lists only four codes (`VALIDATION`, `NOT_FOUND`, `CONFLICT`, `UNAVAILABLE`), and none is an exact match for 405. Options were: one of the four, a new code, or no code.
+- **Decided:** status 405 with code `VALIDATION`.
+- **Why:** the status number already says exactly what happened. The code is the category, and the category is "your request is wrong, fix it". `UNAVAILABLE` would make clients retry forever. `NOT_FOUND` is misleading, because the resource exists. `CONFLICT` is about state, and no state change makes the request succeed. A new code or a missing code breaks the closed list in the task.
+
+## 6. Keep httpx despite the deprecation warning
+
+- **Suggested:** pytest warns that using httpx with `TestClient` is deprecated, and suggests `httpx2`. The user asked whether to switch.
+- **Decided:** keep httpx.
+- **Why:** the warning does not break anything, the course plan uses httpx, and switching adds a new dependency with no benefit right now.
