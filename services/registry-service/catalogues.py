@@ -40,3 +40,20 @@ def get_soil(soil_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)])
         # Temporary: replaced by the problem+json error format in the errors step.
         raise HTTPException(status_code=404, detail="Soil not found")
     return dict(row)
+
+
+@router.get("/emitters")
+def list_emitters(conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> list[dict[str, str | float]]:
+    rows = conn.execute("SELECT id, name, flow_lph FROM emitters ORDER BY id").fetchall()
+    return [dict(row) for row in rows]
+
+
+@router.get("/emitters/{emitter_id}")
+def get_emitter(emitter_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> dict[str, str | float]:
+    row = conn.execute(
+        "SELECT id, name, flow_lph FROM emitters WHERE id = ?", (emitter_id,)
+    ).fetchone()
+    if row is None:
+        # Temporary: replaced by the problem+json error format in the errors step.
+        raise HTTPException(status_code=404, detail="Emitter not found")
+    return dict(row)
