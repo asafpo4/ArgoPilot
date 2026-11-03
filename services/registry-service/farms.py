@@ -2,7 +2,7 @@ import sqlite3
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import AfterValidator, BaseModel, field_validator
 
 from db import get_db
@@ -70,3 +70,14 @@ def update_farm(
         conn.commit()
     row = conn.execute("SELECT id, name FROM farms WHERE id = ?", (farm_id,)).fetchone()
     return dict(row)
+
+
+@router.delete("/farms/{farm_id}", status_code=204)
+def delete_farm(farm_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> Response:
+    if conn.execute("SELECT 1 FROM farms WHERE id = ?", (farm_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Farm not found")
+    if conn.execute("SELECT 1 FROM plots WHERE farm_id = ? LIMIT 1", (farm_id,)).fetchone() is not None:
+        raise HTTPException(status_code=409, detail="Farm has plots")
+    conn.execute("DELETE FROM farms WHERE id = ?", (farm_id,))
+    conn.commit()
+    return Response(status_code=204)

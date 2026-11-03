@@ -55,3 +55,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** the task says PATCH changes only the fields sent, but does not say what an empty body or a null name should do.
 - **Decided:** an empty body returns 200 with no change. A null name returns 422.
 - **Why:** "change only what was sent" means nothing changes when nothing is sent, which is harmless. A farm must always have a name, so null is invalid.
+
+## 10. Check for plots before deleting a farm
+
+- **Suggested:** the database already refuses to delete a farm that has plots, because foreign keys are on.
+- **Decided:** check for plots in the route and return 409 `CONFLICT` before deleting. Keep the foreign key as a safety net.
+- **Why:** the database error is a different type that no handler catches, so the client would get a 500. The task asks for 409.

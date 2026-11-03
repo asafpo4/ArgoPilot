@@ -119,3 +119,37 @@ def test_patch_unknown_farm_returns_404_not_found(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json()["code"] == "NOT_FOUND"
+
+
+def test_delete_farm_with_plots_returns_409_and_farm_still_exists(client: TestClient) -> None:
+    response = client.delete("/v1/farms/b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
+    assert client.get("/v1/farms/b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001").status_code == 200
+
+
+def test_create_then_delete_farm_returns_204_and_get_is_404(client: TestClient) -> None:
+    farm_id = client.post("/v1/farms", json={"name": "North farm"}).json()["id"]
+
+    response = client.delete(f"/v1/farms/{farm_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert client.get(f"/v1/farms/{farm_id}").status_code == 404
+
+
+def test_deleting_a_new_farm_keeps_the_seeded_farms(client: TestClient) -> None:
+    farm_id = client.post("/v1/farms", json={"name": "North farm"}).json()["id"]
+
+    client.delete(f"/v1/farms/{farm_id}")
+
+    response = client.get("/v1/farms")
+    assert [farm["name"] for farm in response.json()] == ["East farm", "Demo cooperative"]
+
+
+def test_delete_unknown_farm_returns_404_not_found(client: TestClient) -> None:
+    response = client.delete("/v1/farms/00000000-0000-0000-0000-000000000000")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
