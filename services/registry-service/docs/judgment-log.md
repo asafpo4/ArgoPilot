@@ -1,6 +1,6 @@
 # Judgment log
 
-Each entry: what the coding agent suggested, what we decided, and why.
+Each entry: what the AI tools suggested or the open question they raised, what I decided, and why.
 
 ## 1. Where to turn database failures into HTTP 503
 
