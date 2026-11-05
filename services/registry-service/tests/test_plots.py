@@ -1,3 +1,7 @@
+import json
+from datetime import date, timedelta
+
+import pytest
 from fastapi.testclient import TestClient
 
 NORTH_BLOCK = "c8f3d1b0-4d2e-5a1b-8b22-1d6e3f702002"
@@ -6,6 +10,23 @@ WEST_BLOCK = "e0b5f3d2-6f40-4c7b-8d44-3f8a5b914004"
 GREENHOUSE = "f1c6a4e3-7051-4d8c-9e55-4a9b6c025005"
 DEMO_COOPERATIVE = "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001"
 EAST_FARM = "a9c1e4b2-6f70-4d8e-a144-3f8b5c904004"
+
+TODAY = date.today().isoformat()
+TOMORROW = (date.today() + timedelta(days=1)).isoformat()
+
+VALID_BODY = {
+    "farm_id": DEMO_COOPERATIVE,
+    "name": "South block",
+    "area_m2": 1000,
+    "crop_id": "tomato",
+    "planting_date": "2026-03-01",
+    "soil_id": "loam",
+    "row_spacing_m": 1.5,
+    "emitter_spacing_m": 0.4,
+    "emitter_id": "dripnet-pc-1.0",
+    "lat": 31.25,
+    "lon": 34.79,
+}
 
 
 def test_list_plots_returns_all_four_seeded_plots(client: TestClient) -> None:
@@ -56,3 +77,88 @@ def test_get_unknown_plot_returns_404_problem_json(client: TestClient) -> None:
     assert response.headers["content-type"] == "application/problem+json"
     assert response.json()["code"] == "NOT_FOUND"
     assert response.json()["detail"] == "Plot not found"
+
+
+def test_create_plot_returns_201_with_id_and_sent_fields(client: TestClient) -> None:
+    response = client.post("/v1/plots", json=VALID_BODY)
+
+    assert response.status_code == 201
+    assert response.json() == {"id": response.json()["id"], **VALID_BODY}
+
+
+def test_created_plot_can_be_read_back(client: TestClient) -> None:
+    created = client.post("/v1/plots", json=VALID_BODY).json()
+
+    response = client.get(f"/v1/plots/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == created
+
+
+def test_create_plot_saves_name_stripped_of_spaces(client: TestClient) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, "name": "  South block  "})
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "South block"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("area_m2", 0),
+        ("area_m2", -1),
+        ("row_spacing_m", 0),
+        ("emitter_spacing_m", 0),
+        ("lat", 90.1),
+        ("lat", -90.1),
+        ("lon", 180.1),
+        ("lon", -180.1),
+        ("name", ""),
+        ("name", "   "),
+        ("planting_date", TOMORROW),
+        ("planting_date", "2026-3-1"),
+        ("planting_date", "20260301"),
+        ("planting_date", "2026-02-30"),
+        ("planting_date", "not-a-date"),
+    ],
+)
+def test_create_plot_with_invalid_field_returns_422(client: TestClient, field: str, value: object) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, field: value})
+
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "VALIDATION"
+
+
+def test_create_plot_with_missing_field_returns_422(client: TestClient) -> None:
+    body = {key: value for key, value in VALID_BODY.items() if key != "lat"}
+
+    response = client.post("/v1/plots", json=body)
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+
+
+def test_create_plot_with_infinite_area_returns_422(client: TestClient) -> None:
+    raw = json.dumps(VALID_BODY).replace('"area_m2": 1000', '"area_m2": 1e999')
+
+    response = client.post("/v1/plots", content=raw, headers={"content-type": "application/json"})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("lat", 90),
+        ("lat", -90),
+        ("lon", 180),
+        ("lon", -180),
+        ("planting_date", TODAY),
+    ],
+)
+def test_create_plot_at_boundary_value_returns_201(client: TestClient, field: str, value: object) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, field: value})
+
+    assert response.status_code == 201

@@ -61,3 +61,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** the database already refuses to delete a farm that has plots, because foreign keys are on.
 - **Decided:** check for plots in the route and return 409 `CONFLICT` before deleting. Keep the foreign key as a safety net.
 - **Why:** the database error is a different type that no handler catches, so the client would get a 500. The task asks for 409.
+
+## 11. Plot names follow the farm name rule
+
+- **Suggested:** the task requires a non-empty name for farms, but for plots it only says the name is unique inside a farm.
+- **Decided:** plot names follow the farm rule. Strip the spaces around the name, and an empty result returns 422.
+- **Why:** without stripping, `"North block"` and `"North block "` are different text, so a duplicate name would pass the uniqueness rule.

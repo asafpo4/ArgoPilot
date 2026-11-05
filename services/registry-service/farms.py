@@ -3,30 +3,20 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import AfterValidator, BaseModel, field_validator
+from pydantic import BaseModel, field_validator
 
 from db import get_db
+from validation import RequiredName
 
 router = APIRouter(prefix="/v1")
 
 
-def strip_and_require_name(value: str) -> str:
-    stripped = value.strip()
-    if not stripped:
-        raise ValueError("name must not be empty")
-    return stripped
-
-
-# The farm name rule, shared by the create and update models.
-FarmName = Annotated[str, AfterValidator(strip_and_require_name)]
-
-
 class FarmCreate(BaseModel):
-    name: FarmName
+    name: RequiredName
 
 
 class FarmUpdate(BaseModel):
-    name: FarmName | None = None
+    name: RequiredName | None = None
 
     @field_validator("name", mode="before")
     @classmethod
