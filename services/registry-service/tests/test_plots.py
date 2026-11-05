@@ -359,3 +359,52 @@ def test_patch_ignores_id_in_body(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["id"] == NORTH_BLOCK
+
+
+def test_delete_plot_returns_204_with_empty_body(client: TestClient) -> None:
+    response = client.delete(f"/v1/plots/{NORTH_BLOCK}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_deleted_plot_returns_404_on_get(client: TestClient) -> None:
+    client.delete(f"/v1/plots/{NORTH_BLOCK}")
+
+    response = client.get(f"/v1/plots/{NORTH_BLOCK}")
+
+    assert response.status_code == 404
+
+
+def test_list_after_delete_has_the_other_three_plots(client: TestClient) -> None:
+    client.delete(f"/v1/plots/{NORTH_BLOCK}")
+
+    response = client.get("/v1/plots")
+
+    assert [plot["id"] for plot in response.json()] == [EAST_BLOCK, WEST_BLOCK, GREENHOUSE]
+
+
+def test_deleting_the_same_plot_twice_returns_404_the_second_time(client: TestClient) -> None:
+    client.delete(f"/v1/plots/{NORTH_BLOCK}")
+
+    response = client.delete(f"/v1/plots/{NORTH_BLOCK}")
+
+    assert response.status_code == 404
+
+
+def test_delete_unknown_plot_returns_404_problem_json(client: TestClient) -> None:
+    response = client.delete("/v1/plots/00000000-0000-0000-0000-000000000000")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "NOT_FOUND"
+    assert response.json()["detail"] == "Plot not found"
+
+
+def test_delete_both_plots_of_a_farm_then_the_farm_returns_204(client: TestClient) -> None:
+    client.delete(f"/v1/plots/{WEST_BLOCK}")
+    client.delete(f"/v1/plots/{GREENHOUSE}")
+
+    response = client.delete(f"/v1/farms/{EAST_FARM}")
+
+    assert response.status_code == 204

@@ -2,7 +2,7 @@ import sqlite3
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, field_validator
 
 from db import get_db
@@ -162,3 +162,12 @@ def update_plot(
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME_DETAIL) from None
     return merged
+
+
+@router.delete("/plots/{plot_id}", status_code=204)
+def delete_plot(plot_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> Response:
+    if conn.execute("SELECT 1 FROM plots WHERE id = ?", (plot_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Plot not found")
+    conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
+    conn.commit()
+    return Response(status_code=204)
