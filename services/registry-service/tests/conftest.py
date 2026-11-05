@@ -38,3 +38,16 @@ def unavailable_client(tmp_path: Path) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def broken_client() -> Iterator[TestClient]:
+    def override_get_db() -> Iterator[sqlite3.Connection]:
+        raise RuntimeError("secret internal message")
+        yield
+
+    app.dependency_overrides[get_db] = override_get_db
+    # A catch-all handler makes TestClient re-raise the error by default, so turn that off.
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

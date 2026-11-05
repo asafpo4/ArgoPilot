@@ -91,3 +91,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** open the connection with the sqlite3 defaults.
 - **Decided:** pass `check_same_thread=False`, and keep the connection setup in one function used by the service and the tests.
 - **Why:** FastAPI can run `get_db` and the route on different worker threads. With the default, overlapping requests failed with a 500. The tests missed it because they sent one request at a time. It is safe because each request has its own connection and uses it one step at a time.
+
+## 16. Unexpected server errors return 500 with code UNAVAILABLE
+
+- **Suggested:** the task's closed list of codes has no code for an unexpected server error.
+- **Decided:** return status 500 with code `UNAVAILABLE` and no `Retry-After` header.
+- **Why:** every error must be problem+json with a listed code, and a new code would break the closed list. Status 500 says what happened. Status 503 with `Retry-After` would tell clients to keep retrying a bug. This is our reading, because the task does not cover this case.

@@ -8,6 +8,8 @@ from catalogues import router as catalogues_router
 from errors import (
     database_unavailable_handler,
     http_exception_handler,
+    invalid_text_handler,
+    unexpected_error_handler,
     validation_exception_handler,
 )
 from farms import router as farms_router
@@ -20,6 +22,8 @@ app.include_router(plots_router)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(sqlite3.OperationalError, database_unavailable_handler)
+app.add_exception_handler(UnicodeEncodeError, invalid_text_handler)
+app.add_exception_handler(Exception, unexpected_error_handler)
 
 
 @app.get("/health")

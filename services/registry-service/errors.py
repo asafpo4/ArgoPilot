@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # The code for each HTTP status we return. Any other status raises KeyError,
-# so it fails loudly instead of getting a guessed code.
+# and the unexpected error handler turns it into a 500.
 CODE_BY_STATUS = {404: "NOT_FOUND", 405: "VALIDATION", 409: "CONFLICT", 422: "VALIDATION"}
 
 
@@ -44,3 +44,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def database_unavailable_handler(request: Request, exc: sqlite3.OperationalError) -> JSONResponse:
     # The raw sqlite message is not sent to the client.
     return problem_response(503, "UNAVAILABLE", "Database unavailable", {"Retry-After": "5"})
+
+
+async def invalid_text_handler(request: Request, exc: UnicodeEncodeError) -> JSONResponse:
+    return problem_response(422, "VALIDATION", "Text contains invalid characters")
+
+
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # The real error is not sent to the client.
+    return problem_response(500, "UNAVAILABLE", "Internal server error")
