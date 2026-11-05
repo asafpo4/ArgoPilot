@@ -222,3 +222,140 @@ def test_same_name_on_another_farm_returns_201(client: TestClient) -> None:
     response = client.post("/v1/plots", json={**VALID_BODY, "farm_id": EAST_FARM, "name": "North block"})
 
     assert response.status_code == 201
+
+
+def test_patch_area_returns_full_plot_with_only_area_changed(client: TestClient) -> None:
+    before = client.get(f"/v1/plots/{NORTH_BLOCK}").json()
+
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"area_m2": 1200})
+
+    assert response.status_code == 200
+    assert response.json() == {**before, "area_m2": 1200}
+    assert client.get(f"/v1/plots/{NORTH_BLOCK}").json() == response.json()
+
+
+def test_patch_with_empty_body_returns_200_and_plot_unchanged(client: TestClient) -> None:
+    before = client.get(f"/v1/plots/{NORTH_BLOCK}").json()
+
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={})
+
+    assert response.status_code == 200
+    assert response.json() == before
+
+
+def test_patch_unknown_plot_returns_404_problem_json(client: TestClient) -> None:
+    response = client.patch("/v1/plots/00000000-0000-0000-0000-000000000000", json={"area_m2": 1200})
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "NOT_FOUND"
+    assert response.json()["detail"] == "Plot not found"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("area_m2", 0),
+        ("row_spacing_m", 0),
+        ("emitter_spacing_m", 0),
+        ("lat", 90.1),
+        ("lon", 180.1),
+        ("name", "   "),
+        ("planting_date", TOMORROW),
+        ("planting_date", "20260301"),
+    ],
+)
+def test_patch_with_invalid_field_returns_422(client: TestClient, field: str, value: object) -> None:
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={field: value})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+
+
+ALL_FIELDS = [
+    "farm_id",
+    "name",
+    "area_m2",
+    "crop_id",
+    "planting_date",
+    "soil_id",
+    "row_spacing_m",
+    "emitter_spacing_m",
+    "emitter_id",
+    "lat",
+    "lon",
+]
+
+
+@pytest.mark.parametrize("field", ALL_FIELDS)
+def test_patch_with_null_field_returns_422(client: TestClient, field: str) -> None:
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={field: None})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "detail"),
+    [
+        ("crop_id", "potato", "Unknown crop"),
+        ("soil_id", "gravel", "Unknown soil"),
+        ("emitter_id", "dripnet-pc-9.9", "Unknown emitter"),
+    ],
+)
+def test_patch_with_unknown_catalogue_id_returns_422(
+    client: TestClient, field: str, value: str, detail: str
+) -> None:
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={field: value})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == detail
+
+
+def test_patch_with_unknown_farm_returns_404(client: TestClient) -> None:
+    response = client.patch(
+        f"/v1/plots/{NORTH_BLOCK}", json={"farm_id": "00000000-0000-0000-0000-000000000000"}
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Farm not found"
+
+
+def test_patch_name_taken_in_same_farm_returns_409_and_plot_unchanged(client: TestClient) -> None:
+    before = client.get(f"/v1/plots/{NORTH_BLOCK}").json()
+
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"name": "East block"})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
+    assert client.get(f"/v1/plots/{NORTH_BLOCK}").json() == before
+
+
+def test_patch_with_own_name_returns_200(client: TestClient) -> None:
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"name": "North block"})
+
+    assert response.status_code == 200
+
+
+def test_patch_farm_moves_plot_to_another_farm(client: TestClient) -> None:
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"farm_id": EAST_FARM})
+
+    assert response.status_code == 200
+    moved = client.get("/v1/plots", params={"farm_id": EAST_FARM}).json()
+    assert NORTH_BLOCK in [plot["id"] for plot in moved]
+
+
+def test_patch_farm_and_name_taken_in_new_farm_returns_409(client: TestClient) -> None:
+    response = client.patch(
+        f"/v1/plots/{NORTH_BLOCK}", json={"farm_id": EAST_FARM, "name": "West block"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
+
+
+def test_patch_ignores_id_in_body(client: TestClient) -> None:
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"id": EAST_BLOCK, "area_m2": 1200})
+
+    assert response.status_code == 200
+    assert response.json()["id"] == NORTH_BLOCK

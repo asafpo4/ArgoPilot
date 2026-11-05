@@ -27,3 +27,7 @@ RequiredName = Annotated[str, AfterValidator(strip_and_require_name)]
 PositiveNumber = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 
 PlantingDate = Annotated[str, AfterValidator(check_planting_date)]
+
+Latitude = Annotated[float, Field(ge=-90, le=90)]
+
+Longitude = Annotated[float, Field(ge=-180, le=180)]

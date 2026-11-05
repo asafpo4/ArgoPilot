@@ -79,3 +79,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** check for the name before writing, as DELETE farm checks for plots.
 - **Decided:** rely on the UNIQUE constraint and turn `sqlite3.IntegrityError` into 409.
 - **Why:** two simultaneous requests could both pass a check made before writing, and the second would get a 500.
+
+## 14. PATCH may move a plot to another farm
+
+- **Suggested:** the task does not say whether PATCH may change a plot's `farm_id`.
+- **Decided:** allow it, so a plot can move to another farm.
+- **Why:** the task says PATCH changes the fields in the body, and `farm_id` is one of them. Forbidding it would be a rule the task does not list. The existing checks already cover an unknown farm and a name taken in the new farm.
