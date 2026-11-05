@@ -4,6 +4,8 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+import plots
+
 NORTH_BLOCK = "c8f3d1b0-4d2e-5a1b-8b22-1d6e3f702002"
 EAST_BLOCK = "d9a4e2c1-5e3f-4b6a-9c33-2e7f4a803003"
 WEST_BLOCK = "e0b5f3d2-6f40-4c7b-8d44-3f8a5b914004"
@@ -434,3 +436,54 @@ def test_patch_with_non_number_returns_422_and_plot_unchanged(
     assert response.status_code == 422
     assert response.json()["code"] == "VALIDATION"
     assert client.get(f"/v1/plots/{NORTH_BLOCK}").json() == before
+
+
+UNKNOWN_FARM = "00000000-0000-0000-0000-000000000000"
+
+
+def _skip_first_check(real_check):
+    # The first call (before the write) does nothing. Later calls (after an error) run the real check.
+    calls = []
+
+    def check(conn, *args):
+        calls.append(None)
+        if len(calls) > 1:
+            real_check(conn, *args)
+
+    return check
+
+
+def test_create_with_farm_missing_at_check_time_returns_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plots, "check_references", _skip_first_check(plots.check_references))
+
+    response = client.post("/v1/plots", json={**VALID_BODY, "farm_id": UNKNOWN_FARM})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Farm not found"
+
+
+def test_patch_with_farm_missing_at_check_time_returns_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plots, "check_references", _skip_first_check(plots.check_references))
+
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"farm_id": UNKNOWN_FARM})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Farm not found"
+
+
+def test_patch_when_plot_is_deleted_before_the_update_returns_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def delete_during_check(conn, *args):
+        conn.execute("DELETE FROM plots WHERE id = ?", (NORTH_BLOCK,))
+
+    monkeypatch.setattr(plots, "check_references", delete_during_check)
+
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={"area_m2": 1200})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Plot not found"

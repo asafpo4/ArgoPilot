@@ -62,6 +62,8 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Decided:** check for plots in the route and return 409 `CONFLICT` before deleting. Keep the foreign key as a safety net.
 - **Why:** the database error is a different type that no handler catches, so the client would get a 500. The task asks for 409.
 
+Replaced by entry 18.
+
 ## 11. Plot names follow the farm name rule
 
 - **Suggested:** the task requires a non-empty name for farms, but for plots it only says the name is unique inside a farm.
@@ -103,3 +105,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** leave number fields with the Pydantic default, which converts `true` to 1 and `"1000"` to 1000.
 - **Decided:** use `strict=True` on the number fields.
 - **Why:** the task says a bad field returns 422. A client that sends `true` for an area would get 201 and a plot of 1 square metre. Whole numbers such as 1000 are still accepted.
+
+## 18. Let the database decide overlapping writes
+
+- **Suggested:** check first, then write, as the routes did.
+- **Decided:** write first, and turn the database's answer into the response: a constraint error becomes 409 or 404, and zero changed rows becomes 404.
+- **Why:** another request can change the data between a check and a write. The first request to reach the database wins, and the second gets the correct error. There is no gap, and the code is shorter.

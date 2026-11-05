@@ -121,7 +121,8 @@ def create_plot(body: PlotCreate, conn: Annotated[sqlite3.Connection, Depends(ge
         )
         conn.commit()
     except sqlite3.IntegrityError:
-        # The UNIQUE (farm_id, name) constraint is the duplicate check.
+        # The write failed. Check the references again, in case one was removed after the first check.
+        check_references(conn, body.farm_id, body.crop_id, body.soil_id, body.emitter_id)
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME_DETAIL) from None
     return {"id": plot_id, **body.model_dump()}
 
@@ -139,7 +140,7 @@ def update_plot(
     merged = {**dict(row), **changes}
     check_references(conn, merged["farm_id"], merged["crop_id"], merged["soil_id"], merged["emitter_id"])
     try:
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE plots SET farm_id = ?, name = ?, area_m2 = ?, crop_id = ?, planting_date = ?, "
             "soil_id = ?, row_spacing_m = ?, emitter_spacing_m = ?, emitter_id = ?, lat = ?, lon = ? "
             "WHERE id = ?",
@@ -160,14 +161,17 @@ def update_plot(
         )
         conn.commit()
     except sqlite3.IntegrityError:
+        check_references(conn, merged["farm_id"], merged["crop_id"], merged["soil_id"], merged["emitter_id"])
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME_DETAIL) from None
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Plot not found")
     return merged
 
 
 @router.delete("/plots/{plot_id}", status_code=204)
 def delete_plot(plot_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> Response:
-    if conn.execute("SELECT 1 FROM plots WHERE id = ?", (plot_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail="Plot not found")
-    conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
+    cursor = conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
     conn.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Plot not found")
     return Response(status_code=204)
