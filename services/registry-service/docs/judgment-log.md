@@ -67,3 +67,15 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** the task requires a non-empty name for farms, but for plots it only says the name is unique inside a farm.
 - **Decided:** plot names follow the farm rule. Strip the spaces around the name, and an empty result returns 422.
 - **Why:** without stripping, `"North block"` and `"North block "` are different text, so a duplicate name would pass the uniqueness rule.
+
+## 12. Unknown farm on plot create returns 404
+
+- **Suggested:** return 422, because the bad id is inside the body, the same as `crop_id`.
+- **Decided:** return 404 with code `NOT_FOUND`.
+- **Why:** the task's 422 rule names only crop, soil and emitter, and its general rule says an unknown id returns 404. The detail "Farm not found" tells the client what is missing.
+
+## 13. Duplicate plot names rely on the UNIQUE constraint
+
+- **Suggested:** check for the name before writing, as DELETE farm checks for plots.
+- **Decided:** rely on the UNIQUE constraint and turn `sqlite3.IntegrityError` into 409.
+- **Why:** two simultaneous requests could both pass a check made before writing, and the second would get a 500.

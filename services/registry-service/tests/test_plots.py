@@ -162,3 +162,63 @@ def test_create_plot_at_boundary_value_returns_201(client: TestClient, field: st
     response = client.post("/v1/plots", json={**VALID_BODY, field: value})
 
     assert response.status_code == 201
+
+
+def test_unknown_farm_returns_404_problem_json(client: TestClient) -> None:
+    body = {**VALID_BODY, "farm_id": "00000000-0000-0000-0000-000000000000"}
+
+    response = client.post("/v1/plots", json=body)
+
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "NOT_FOUND"
+    assert response.json()["detail"] == "Farm not found"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "detail"),
+    [
+        ("crop_id", "potato", "Unknown crop"),
+        ("soil_id", "gravel", "Unknown soil"),
+        ("emitter_id", "dripnet-pc-9.9", "Unknown emitter"),
+    ],
+)
+def test_unknown_catalogue_id_returns_422_problem_json(
+    client: TestClient, field: str, value: str, detail: str
+) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, field: value})
+
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "VALIDATION"
+    assert response.json()["detail"] == detail
+
+
+def test_rejected_request_does_not_add_a_plot(client: TestClient) -> None:
+    client.post("/v1/plots", json={**VALID_BODY, "crop_id": "potato"})
+
+    response = client.get("/v1/plots")
+
+    assert len(response.json()) == 4
+
+
+def test_duplicate_name_on_same_farm_returns_409(client: TestClient) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, "name": "North block"})
+
+    assert response.status_code == 409
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "CONFLICT"
+    assert response.json()["detail"] == "Plot name already exists in this farm"
+
+
+def test_duplicate_name_with_spaces_returns_409(client: TestClient) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, "name": " North block "})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
+
+
+def test_same_name_on_another_farm_returns_201(client: TestClient) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, "farm_id": EAST_FARM, "name": "North block"})
+
+    assert response.status_code == 201
