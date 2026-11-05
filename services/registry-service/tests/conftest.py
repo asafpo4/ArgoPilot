@@ -6,15 +6,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from db import DB_PATH, get_db
+from db import DB_PATH, connect, get_db
 from main import app
 
 
 def use_database(path: Path) -> None:
     def override_get_db() -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(f"{path.as_uri()}?mode=rw", uri=True)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
+        conn = connect(path)
         try:
             yield conn
         finally:

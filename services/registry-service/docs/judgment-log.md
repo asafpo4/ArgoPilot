@@ -85,3 +85,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** the task does not say whether PATCH may change a plot's `farm_id`.
 - **Decided:** allow it, so a plot can move to another farm.
 - **Why:** the task says PATCH changes the fields in the body, and `farm_id` is one of them. Forbidding it would be a rule the task does not list. The existing checks already cover an unknown farm and a name taken in the new farm.
+
+## 15. Allow the database connection to cross threads
+
+- **Suggested:** open the connection with the sqlite3 defaults.
+- **Decided:** pass `check_same_thread=False`, and keep the connection setup in one function used by the service and the tests.
+- **Why:** FastAPI can run `get_db` and the route on different worker threads. With the default, overlapping requests failed with a 500. The tests missed it because they sent one request at a time. It is safe because each request has its own connection and uses it one step at a time.
