@@ -76,3 +76,17 @@ def test_lone_surrogate_text_returns_422_problem_json(
     assert response.headers["content-type"] == "application/problem+json"
     assert response.json()["code"] == "VALIDATION"
     assert response.json()["detail"] == "Text contains invalid characters"
+
+
+def test_validation_failure_title_is_unprocessable_entity(client: TestClient) -> None:
+    response = client.post("/v1/farms", json={"name": ""})
+
+    assert response.status_code == 422
+    assert response.json()["title"] == "Unprocessable Entity"
+
+
+def test_not_found_title_is_not_found(client: TestClient) -> None:
+    response = client.get("/v1/crops/potato")
+
+    assert response.status_code == 404
+    assert response.json()["title"] == "Not Found"

@@ -14,9 +14,12 @@ CODE_BY_STATUS = {404: "NOT_FOUND", 405: "VALIDATION", 409: "CONFLICT", 422: "VA
 def problem_response(
     status: int, code: str, detail: str, headers: dict[str, str] | None = None
 ) -> JSONResponse:
+    # Newer Python versions call 422 "Unprocessable Content". The task uses "Unprocessable Entity",
+    # so 422 always gets that title, whatever Python version runs the service.
+    title = "Unprocessable Entity" if status == 422 else HTTPStatus(status).phrase
     body = {
         "type": "about:blank",
-        "title": HTTPStatus(status).phrase,
+        "title": title,
         "status": status,
         "detail": detail,
         "code": code,
