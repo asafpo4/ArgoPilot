@@ -408,3 +408,29 @@ def test_delete_both_plots_of_a_farm_then_the_farm_returns_204(client: TestClien
     response = client.delete(f"/v1/farms/{EAST_FARM}")
 
     assert response.status_code == 204
+
+
+NUMBER_FIELDS = ["area_m2", "row_spacing_m", "emitter_spacing_m", "lat", "lon"]
+
+
+@pytest.mark.parametrize("field", NUMBER_FIELDS)
+@pytest.mark.parametrize("value", [True, "10"])
+def test_create_plot_with_non_number_returns_422(client: TestClient, field: str, value: object) -> None:
+    response = client.post("/v1/plots", json={**VALID_BODY, field: value})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+
+
+@pytest.mark.parametrize("field", NUMBER_FIELDS)
+@pytest.mark.parametrize("value", [True, "10"])
+def test_patch_with_non_number_returns_422_and_plot_unchanged(
+    client: TestClient, field: str, value: object
+) -> None:
+    before = client.get(f"/v1/plots/{NORTH_BLOCK}").json()
+
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK}", json={field: value})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+    assert client.get(f"/v1/plots/{NORTH_BLOCK}").json() == before

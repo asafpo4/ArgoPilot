@@ -97,3 +97,9 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Suggested:** the task's closed list of codes has no code for an unexpected server error.
 - **Decided:** return status 500 with code `UNAVAILABLE` and no `Retry-After` header.
 - **Why:** every error must be problem+json with a listed code, and a new code would break the closed list. Status 500 says what happened. Status 503 with `Retry-After` would tell clients to keep retrying a bug. This is our reading, because the task does not cover this case.
+
+## 17. Number fields reject values that are not numbers
+
+- **Suggested:** leave number fields with the Pydantic default, which converts `true` to 1 and `"1000"` to 1000.
+- **Decided:** use `strict=True` on the number fields.
+- **Why:** the task says a bad field returns 422. A client that sends `true` for an area would get 201 and a plot of 1 square metre. Whole numbers such as 1000 are still accepted.

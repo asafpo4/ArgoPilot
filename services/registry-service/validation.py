@@ -24,10 +24,10 @@ def check_planting_date(value: str) -> str:
 RequiredName = Annotated[str, AfterValidator(strip_and_require_name)]
 
 # Rejects 0, negatives, and infinity (JSON 1e999 parses to infinity).
-PositiveNumber = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+PositiveNumber = Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
 
 PlantingDate = Annotated[str, AfterValidator(check_planting_date)]
 
-Latitude = Annotated[float, Field(ge=-90, le=90)]
+Latitude = Annotated[float, Field(ge=-90, le=90, strict=True)]
 
-Longitude = Annotated[float, Field(ge=-180, le=180)]
+Longitude = Annotated[float, Field(ge=-180, le=180, strict=True)]
