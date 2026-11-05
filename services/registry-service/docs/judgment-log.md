@@ -32,81 +32,75 @@ Each entry: what the coding agent suggested, what we decided, and why.
 - **Decided:** status 405 with code `VALIDATION`.
 - **Why:** the status number already says exactly what happened. The code is the category, and the category is "your request is wrong, fix it". `UNAVAILABLE` would make clients retry forever. `NOT_FOUND` is misleading, because the resource exists. `CONFLICT` is about state, and no state change makes the request succeed. A new code or a missing code breaks the closed list in the task.
 
-## 6. Keep httpx despite the deprecation warning
-
-- **Suggested:** pytest warns that using httpx with `TestClient` is deprecated, and suggests `httpx2`. The user asked whether to switch.
-- **Decided:** keep httpx.
-- **Why:** the warning does not break anything, the course plan uses httpx, and switching adds a new dependency with no benefit right now.
-
-## 7. Map every sqlite3.OperationalError to 503
+## 6. Map every sqlite3.OperationalError to 503
 
 - **Suggested:** `sqlite3.OperationalError` covers both "database unavailable" (missing file, locked file) and code bugs (like a missing table). Options: map all of it to 503, or split the cases.
 - **Decided:** map all `sqlite3.OperationalError` to 503 `UNAVAILABLE`.
 - **Why:** simple and in one place. The bug cases only happen when the code is wrong, and the tests catch them before submission. A missing or broken database file really is "unavailable".
 
-## 8. What counts as an empty farm name
+## 7. What counts as an empty farm name
 
 - **Suggested:** the task says a farm name must be non-empty, but does not say what "empty" means.
 - **Decided:** strip spaces at the start and end of the name. A name that is empty after stripping is rejected with 422.
 - **Why:** a name of only spaces cannot be read or found in a list, so it is empty in practice. Spaces at the edges are not part of the name.
 
-## 9. What PATCH does with an empty body or a null name
+## 8. What PATCH does with an empty body or a null name
 
 - **Suggested:** the task says PATCH changes only the fields sent, but does not say what an empty body or a null name should do.
 - **Decided:** an empty body returns 200 with no change. A null name returns 422.
 - **Why:** "change only what was sent" means nothing changes when nothing is sent, which is harmless. A farm must always have a name, so null is invalid.
 
-## 10. Check for plots before deleting a farm
+## 9. Check for plots before deleting a farm
 
 - **Suggested:** the database already refuses to delete a farm that has plots, because foreign keys are on.
 - **Decided:** check for plots in the route and return 409 `CONFLICT` before deleting. Keep the foreign key as a safety net.
 - **Why:** the database error is a different type that no handler catches, so the client would get a 500. The task asks for 409.
 
-Replaced by entry 18.
+Replaced by entry 17.
 
-## 11. Plot names follow the farm name rule
+## 10. Plot names follow the farm name rule
 
 - **Suggested:** the task requires a non-empty name for farms, but for plots it only says the name is unique inside a farm.
 - **Decided:** plot names follow the farm rule. Strip the spaces around the name, and an empty result returns 422.
 - **Why:** without stripping, `"North block"` and `"North block "` are different text, so a duplicate name would pass the uniqueness rule.
 
-## 12. Unknown farm on plot create returns 404
+## 11. Unknown farm on plot create returns 404
 
 - **Suggested:** return 422, because the bad id is inside the body, the same as `crop_id`.
 - **Decided:** return 404 with code `NOT_FOUND`.
 - **Why:** the task's 422 rule names only crop, soil and emitter, and its general rule says an unknown id returns 404. The detail "Farm not found" tells the client what is missing.
 
-## 13. Duplicate plot names rely on the UNIQUE constraint
+## 12. Duplicate plot names rely on the UNIQUE constraint
 
 - **Suggested:** check for the name before writing, as DELETE farm checks for plots.
 - **Decided:** rely on the UNIQUE constraint and turn `sqlite3.IntegrityError` into 409.
 - **Why:** two simultaneous requests could both pass a check made before writing, and the second would get a 500.
 
-## 14. PATCH may move a plot to another farm
+## 13. PATCH may move a plot to another farm
 
 - **Suggested:** the task does not say whether PATCH may change a plot's `farm_id`.
 - **Decided:** allow it, so a plot can move to another farm.
 - **Why:** the task says PATCH changes the fields in the body, and `farm_id` is one of them. Forbidding it would be a rule the task does not list. The existing checks already cover an unknown farm and a name taken in the new farm.
 
-## 15. Allow the database connection to cross threads
+## 14. Allow the database connection to cross threads
 
 - **Suggested:** open the connection with the sqlite3 defaults.
 - **Decided:** pass `check_same_thread=False`, and keep the connection setup in one function used by the service and the tests.
 - **Why:** FastAPI can run `get_db` and the route on different worker threads. With the default, overlapping requests failed with a 500. The tests missed it because they sent one request at a time. It is safe because each request has its own connection and uses it one step at a time.
 
-## 16. Unexpected server errors return 500 with code UNAVAILABLE
+## 15. Unexpected server errors return 500 with code UNAVAILABLE
 
 - **Suggested:** the task's closed list of codes has no code for an unexpected server error.
 - **Decided:** return status 500 with code `UNAVAILABLE` and no `Retry-After` header.
 - **Why:** every error must be problem+json with a listed code, and a new code would break the closed list. Status 500 says what happened. Status 503 with `Retry-After` would tell clients to keep retrying a bug. This is our reading, because the task does not cover this case.
 
-## 17. Number fields reject values that are not numbers
+## 16. Number fields reject values that are not numbers
 
 - **Suggested:** leave number fields with the Pydantic default, which converts `true` to 1 and `"1000"` to 1000.
 - **Decided:** use `strict=True` on the number fields.
 - **Why:** the task says a bad field returns 422. A client that sends `true` for an area would get 201 and a plot of 1 square metre. Whole numbers such as 1000 are still accepted.
 
-## 18. Let the database decide overlapping writes
+## 17. Let the database decide overlapping writes
 
 - **Suggested:** check first, then write, as the routes did.
 - **Decided:** write first, and turn the database's answer into the response: a constraint error becomes 409 or 404, and zero changed rows becomes 404.
