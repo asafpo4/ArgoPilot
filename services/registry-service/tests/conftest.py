@@ -51,3 +51,41 @@ def broken_client() -> Iterator[TestClient]:
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def broken_schema_client(tmp_path: Path) -> Iterator[TestClient]:
+    test_db = tmp_path / "registry.db"
+    shutil.copy(DB_PATH, test_db)
+    drop = sqlite3.connect(test_db)
+    drop.execute("DROP TABLE crops")
+    drop.commit()
+    drop.close()
+    use_database(test_db)
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def locked_client(tmp_path: Path) -> Iterator[TestClient]:
+    test_db = tmp_path / "registry.db"
+    shutil.copy(DB_PATH, test_db)
+    lock = sqlite3.connect(test_db)
+    lock.execute("BEGIN IMMEDIATE")  # Holds the write lock until the test ends.
+
+    def override_get_db() -> Iterator[sqlite3.Connection]:
+        conn = connect(test_db)
+        # Wait 0.1 s for the lock instead of the default 5 s, so the test stays fast.
+        conn.execute("PRAGMA busy_timeout = 100")
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+    lock.rollback()
+    lock.close()

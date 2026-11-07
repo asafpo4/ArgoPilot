@@ -32,11 +32,11 @@ Each entry: what the AI tools suggested or the open question they raised, what I
 - **Decided:** status 405 with code `VALIDATION`.
 - **Why:** the status number already says exactly what happened. The code is the category, and the category is "your request is wrong, fix it". `UNAVAILABLE` would make clients retry forever. `NOT_FOUND` is misleading, because the resource exists. `CONFLICT` is about state, and no state change makes the request succeed. A new code or a missing code breaks the closed list in the task.
 
-## 6. Map every sqlite3.OperationalError to 503
+## 6. Split sqlite3.OperationalError by its error code
 
-- **Suggested:** `sqlite3.OperationalError` covers both "database unavailable" (missing file, locked file) and code bugs (like a missing table). Options: map all of it to 503, or split the cases.
-- **Decided:** map all `sqlite3.OperationalError` to 503 `UNAVAILABLE`.
-- **Why:** simple and in one place. The bug cases only happen when the code is wrong, and the tests catch them before submission. A missing or broken database file really is "unavailable".
+- **Suggested:** map every sqlite3.OperationalError to 503, as I first decided. Reviewing it, I found that the same error type covers both an unavailable database and a bug in a query.
+- **Decided:** SQLITE_BUSY, SQLITE_LOCKED and SQLITE_CANTOPEN return 503 with Retry-After. Any other code returns 500 through the unexpected error handler.
+- **Why:** a bug answered with 503 and Retry-After tells clients to keep retrying something that will never work. The error code is stable, unlike the message text, so the split is reliable.
 
 ## 7. What counts as an empty farm name
 

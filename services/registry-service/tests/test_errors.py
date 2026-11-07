@@ -43,6 +43,25 @@ def test_database_unavailable_returns_503_with_retry_after(unavailable_client: T
     assert response.json()["detail"] == "Database unavailable"
 
 
+def test_missing_table_returns_500_without_retry_after(broken_schema_client: TestClient) -> None:
+    response = broken_schema_client.get("/v1/crops")
+
+    assert response.status_code == 500
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "UNAVAILABLE"
+    assert response.json()["detail"] == "Internal server error"
+    assert "retry-after" not in response.headers
+
+
+def test_locked_database_returns_503_with_retry_after(locked_client: TestClient) -> None:
+    response = locked_client.post("/v1/farms", json={"name": "North farm"})
+
+    assert response.status_code == 503
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.headers["retry-after"] == "5"
+    assert response.json()["code"] == "UNAVAILABLE"
+
+
 def test_unexpected_error_returns_500_problem_json_without_internal_message(
     broken_client: TestClient,
 ) -> None:
