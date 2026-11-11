@@ -93,7 +93,7 @@ Notes on the table:
 
 PostgreSQL rejects `\u0000` in text; SQLite accepts it. Verified: psycopg raises `DataError` on the client with no SQLSTATE, for both INSERT and SELECT parameters.
 
-- **Request bodies.** NUL in any text field of a request body gives 422 `VALIDATION`, "Text contains invalid characters", on both backends. The fields are the names and the reference ids `farm_id`, `crop_id`, `soil_id` and `emitter_id`. The validator lives in `validation.py`. This changes SQLite behavior: a farm name with NUL used to return 201. It is a deliberate change, recorded in entry 17.
+- **Request bodies.** NUL in any text field of a request body gives 422 `VALIDATION`, "Text contains invalid characters", on both backends. The fields are the names and the reference ids `farm_id`, `crop_id`, `soil_id` and `emitter_id`. The validator lives in `validation.py`. This changes SQLite behavior: a farm name with NUL used to return 201. It is a deliberate change, recorded in entry 29.
 - **Lookup values.** A NUL in a path or query id can never match a stored id. Each of the 10 id-taking sites returns today's SQLite answer before any query: 404, or `200 []` for the `farm_id` filter. The sites: `GET` on `/v1/crops/{id}`, `/v1/soils/{id}`, `/v1/emitters/{id}`; `GET`, `PATCH` and `DELETE` on `/v1/farms/{id}` and on `/v1/plots/{id}`; and `GET /v1/plots?farm_id=`. The guard is an explicit `contains_nul` check at each site. This counts as part of the identical-behavior requirement.
 - **Route-walking test.** It walks `app.openapi()["paths"]` (not `app.routes`, which does not list included routers in this FastAPI version) and asserts it found exactly 10 sites, so it can never pass on an empty list. Baseline: run on SQLite before any code change, all 10 sites behaved as above.
 - **Lone surrogates.** Verified: psycopg raises the built-in `UnicodeEncodeError`, which the existing handler turns into 422. The existing four surrogate cases are expected to pass unchanged on PostgreSQL.
@@ -102,6 +102,13 @@ PostgreSQL rejects `\u0000` in text; SQLite accepts it. Verified: psycopg raises
 
 New: `config.py`, the PostgreSQL schema script, the demo data file, `.env.example` (placeholders only), and the new tests.
 Changed: `db.py`, `errors.py`, `main.py`, `farms.py`, `plots.py`, `catalogues.py`, `validation.py`, `tests/conftest.py`, `pyproject.toml`, `uv.lock`, `README.md`, `docs/judgment-log.md`.
+
+README content:
+
+- How the database is chosen: `DATABASE_URL` forms, the unset default, and that `.env` is loaded from the service directory.
+- How to run the PostgreSQL schema script: `psql --single-transaction -v ON_ERROR_STOP=1`, production with the catalogues only, and the demo data file for local use.
+- How to run the PostgreSQL tests: set `TEST_DATABASE_URL`; without it they are skipped; they refuse to run against the same database as `DATABASE_URL`.
+- A warning: never put a real `DATABASE_URL` in `.env.example`. It is committed and must hold placeholders only. The real `.env` stays out of git.
 
 ## 10. Testing
 
@@ -145,16 +152,111 @@ Run the default suite, then the PostgreSQL run against the local throwaway conta
 
 ## 11. Judgment log
 
-- **Entry 2.** Add an update note at the end: "Update: the 'no environment variable' part is replaced by entry 17. The rest of this entry still stands." The 12 defaults and the temp-copy test approach remain in force.
-- **Entry 17 (new).** Records, with reasons:
-  - The replaced part of entry 2: the original decision was right at the time, because the first task did not ask for an environment variable; this task requires `DATABASE_URL` explicitly.
-  - Both backends, the URL rules, and the `.env` handling.
-  - Types and `COLLATE "C"`; native types as a non-goal.
-  - The connect-time rule: a first decision to give 500 for authentication and missing-database failures was reversed for connect time, because libpq gives no SQLSTATE while connecting. The evidence is the check against PostgreSQL 17 (four connect failures, all `OperationalError` with `sqlstate=None`).
-  - `SQLITE_CANTOPEN` returning 503 is a pre-existing SQLite choice and is not changed.
-  - Per-request connections, with the pool deferred.
-  - The NUL change from 201 to 422, and the NUL lookup guard as part of identical behavior.
-- All 16 existing entries stay.
+Every entry is one decision, in the existing format (Suggested / Decided / Why). The 16 existing entries stay. Entry 2 gets a note at its end, and entries 17 to 33 are new. The entries are written during implementation, from the text below.
+
+**Entry 2, note added at the end:** "Update: the 'no environment variable' part is replaced by entry 17. The rest of this entry still stands." The 12 defaults and the temp-copy test approach remain in force.
+
+### 17. DATABASE_URL and the .env file
+
+- **Suggested:** the agent proposed that the URL scheme picks the backend (`postgresql://` for PostgreSQL, `sqlite:///path` for SQLite), and that an unset variable means the local `registry.db`.
+- **Decided:** accepted, with four additions: a relative SQLite path resolves against the service directory, an empty value counts as unset, both `postgresql://` and `postgres://` are accepted, and the password is never shown. `.env` is loaded with python-dotenv from the service directory, and a real environment variable wins over the file. The URL is parsed at app startup and stored on `app.state`. A committed `.env.example` holds placeholders only.
+- **Why:** entry 2's "no environment variable" was right when it was written, because the first task did not ask for one. This task requires `DATABASE_URL` explicitly. An unset variable means SQLite, so local runs and the default tests need no configuration. Parsing at startup makes a bad URL visible at deploy, and `app.state` (not a module-level cache) keeps one test from inheriting another test's database.
+
+### 18. A thin adapter over raw SQL, not an ORM
+
+- **Suggested:** the agent compared three approaches: a thin adapter with raw SQL, SQLAlchemy Core, and separate code for each database.
+- **Decided:** the thin adapter. Routers keep their SQL with `?` placeholders, and the only new database dependency is `psycopg`.
+- **Why:** identical behavior is easiest to keep when one place translates errors and placeholders. SQLAlchemy Core means rewriting all the SQL and a heavier dependency. Separate code per database doubles the code and the risk of drift.
+
+### 19. Reject a literal % in SQL, on both backends
+
+- **Suggested:** the agent's adapter translated `?` to `%s` for PostgreSQL and did not mention `%`.
+- **Decided:** `execute` raises a clear programming error when the SQL contains `%`, on both backends.
+- **Why:** psycopg treats `%` as special, so a literal one would break later in a confusing way. Checking on SQLite too means the default test run catches the mistake before production does.
+
+### 20. PostgreSQL column types mirror SQLite
+
+- **Suggested:** the agent offered three options: mirror SQLite, use native types (`DATE`, `NUMERIC`, `UUID`), or use `DATE` for `planting_date` only.
+- **Decided:** mirror SQLite: `TEXT`, `INTEGER`, `DOUBLE PRECISION`. Native types are a non-goal.
+- **Why:** psycopg then returns `str`, `int` and `float`, as sqlite3 does, so no conversion code is needed and behavior cannot drift. Validation already happens in Pydantic. Native types can be a separate, later task.
+
+### 21. COLLATE "C" on every TEXT column
+
+- **Suggested:** the type mapping in entry 20 said nothing about sort order. Review found that PostgreSQL uses the database's locale collation by default, which can order ids differently from SQLite's byte order.
+- **Decided:** every `TEXT` column in the PostgreSQL schema is `COLLATE "C"`. A test checks list order on both backends, with ids that differ under locale ordering (mixed case and punctuation).
+- **Why:** every list endpoint uses `ORDER BY id`, so a different order would be a visible behavior difference.
+
+### 22. The PostgreSQL schema is a script run by hand, never on startup
+
+- **Suggested:** the open question was whether the schema already exists in production or the service must create it.
+- **Decided:** the tables do not exist. The service ships a schema script, run by hand as one transaction, that creates the tables and loads only the catalogues (crops, soils, emitters). Demo farms and plots are in a separate file for local use and tests. The script has no `IF NOT EXISTS` and no schema name. A test compares the SQLite seed and the PostgreSQL scripts, table by table.
+- **Why:** a production schema change should be deliberate, and creating tables at startup would hide failures and need write rights at runtime. Demo data must never reach production. A second run should fail loudly. With no schema name, the test fixture can run the same script in its own schema. The comparison test stops the two copies of the catalogues from drifting apart.
+
+### 23. One connection per request; a pool is deferred
+
+- **Suggested:** the agent offered a connection per request, a pool for PostgreSQL only, or a pool for both.
+- **Decided:** one connection per request, opened and closed in `get_db`, on both backends. A pool can be added behind `get_db` if `scripts/measure_p95.py` shows a real problem.
+- **Why:** it is the smallest change and keeps the structure as it is. A pool adds a dependency, sizing, a lifecycle and a second code path, and nothing shows yet that it is needed.
+
+### 24. Connect and lock timeouts on PostgreSQL
+
+- **Suggested:** the agent's per-request connection used PostgreSQL's defaults.
+- **Decided:** `connect_timeout` of 5 seconds, and `lock_timeout` of 5 seconds on every connection, appended to any `options` already in the URL and never replacing them.
+- **Why:** without a connect timeout an unreachable server can hang for about two minutes instead of returning 503 quickly. SQLite waits 5 seconds for a lock and then returns `SQLITE_BUSY`, which becomes 503, but PostgreSQL waits forever by default, so a locked row would never give 503.
+
+### 25. Which PostgreSQL errors return 503, after the connection is open
+
+- **Suggested:** the agent proposed the same split as entry 6, by SQLSTATE: `08*`, `57P01`, `57P02`, `57P03`, `53300`, `55P03`, `40001` and `40P01` return 503 with `Retry-After`, and everything else returns 500.
+- **Decided:** accepted, plus one rule: an `OperationalError` outside that list returns 503 when `conn.broken` is true.
+- **Why:** only cases where a retry can help should return 503, as in entry 6. A dropped connection can arrive without a SQLSTATE. Checked against PostgreSQL 17: a stopped server, a killed server, a terminated backend and a cut socket all leave `conn.broken` true, while ordinary errors (`42P01`, `23505`) leave it false.
+
+### 26. Every failure while opening the connection returns 503
+
+- **Suggested:** the agent proposed that wrong password (`28*`) and missing database (`3D000`) return 500, with the argument of entry 6, because a retry cannot fix them.
+- **Decided:** reversed for connect time. Any failure while opening the connection returns 503 with `Retry-After`: wrong password, unknown user, missing database, unreachable server, server starting up. There is no `pgconn` heuristic and no TCP probe.
+- **Why:** checked against PostgreSQL 17 with psycopg 3.3.8: all four connect failures raise `OperationalError` with `sqlstate=None`, so any split would rely on fragile internals. It also matches SQLite, where a missing file (`SQLITE_CANTOPEN`) returns 503. That is a pre-existing SQLite choice and is not being changed. The cost is that a misconfiguration looks like an outage to clients, so the real cause must be in the server log (entry 27).
+
+### 27. Log only on the 503 path, and never log secrets
+
+- **Suggested:** the agent noted that the 503 handler wrote no log line, so the real cause of a database outage would be invisible.
+- **Decided:** the adapter logs only when it raises `DatabaseUnavailable`: exception class, SQLSTATE when there is one, and the message. It never logs `e.pgconn`, the URL or the parameters. Integrity violations and the NUL guards write no log line.
+- **Why:** the log is where whoever runs the service finds a misconfiguration (entry 26). `e.pgconn` contains the password in clear text, and libpq messages include host and user. A 409 for a duplicate name is a normal client answer and should not write a warning each time.
+
+### 28. Roll back before raising IntegrityViolation
+
+- **Suggested:** review found that after an `IntegrityError`, `plots.py` (create and update) runs `check_references` again on the same connection.
+- **Decided:** the adapter rolls back as soon as it catches an integrity violation, before it raises `IntegrityViolation`. A test covers create and update, on both backends. If the rollback fails because the connection is gone, the adapter raises `DatabaseUnavailable`.
+- **Why:** on PostgreSQL an aborted transaction fails every later query, which would turn a 409 or 404 into a 500. The rollback is harmless on SQLite, so there is one code path.
+
+### 29. NUL in request body text returns 422, on both backends
+
+- **Suggested:** the open question was that PostgreSQL rejects `\u0000` in text while SQLite accepts it, so a farm name with NUL returns 201 today and would fail on PostgreSQL.
+- **Decided:** NUL in any text field of a request body (the names and `farm_id`, `crop_id`, `soil_id`, `emitter_id`) returns 422 `VALIDATION`, "Text contains invalid characters", on both backends. On SQLite this changes 201 to 422.
+- **Why:** it is the only option that gives identical behavior on both backends. A NUL in a name is corrupt data, and nothing existing tests or documents it. The change is deliberate and recorded here on purpose.
+
+### 30. NUL in a path or query id keeps today's answer, without querying
+
+- **Suggested:** a NUL in a lookup value is also sent to the database as a parameter. On SQLite today it gives 404 (or `200 []` for the `farm_id` filter), and on PostgreSQL psycopg would raise `DataError` and the request would become a 500.
+- **Decided:** each of the 10 id-taking sites returns today's SQLite answer before any query, through an explicit `contains_nul` check. A route-walking test over `app.openapi()["paths"]` asserts exactly 10 sites. The guard counts as part of the identical-behavior requirement.
+- **Why:** a value with NUL can never match a stored id. An explicit guard keeps the behavior visible in each route, unlike a guard in the adapter, which would also silence real stores. The test uses the OpenAPI schema because `app.routes` does not list included routers in this FastAPI version, and it asserts the count, so it can never pass on an empty list.
+
+### 31. The default test run stays on SQLite, and entry 2's override stays
+
+- **Suggested:** the agent first described fixtures that set `DATABASE_URL`, which differed from entry 2's mechanism.
+- **Decided:** SQLite fixtures keep overriding `get_db` with a temp copy of `registry.db`. One autouse fixture sets `DATABASE_URL` to a SQLite URL so startup never reads the developer's `.env`. Tests use PostgreSQL only through `TEST_DATABASE_URL`, never through `DATABASE_URL`. Tests prove that a PostgreSQL URL in the environment, and a bad or PostgreSQL URL in `.env`, do not change the default run.
+- **Why:** the requirement is that the default run uses SQLite only, and a developer's `.env` may hold a PostgreSQL URL. A real environment variable beats `.env`, so the app needs no test-only branch.
+
+### 32. PostgreSQL test isolation, and the same-database safety check
+
+- **Suggested:** the agent offered a fresh schema per test, truncating and reseeding the same tables, or a new database per test.
+- **Decided:** one schema per test, named with a fixed `test_` prefix. The fixture runs the schema script and the demo data inside it, puts `options=-csearch_path=<schema>` in the URL it gives the app, and drops only the schema it created, by exact name. The tests run only when `TEST_DATABASE_URL` is set, and refuse to run when it points at the same database as the developer's real `DATABASE_URL`. That value is captured once at session start, before any fixture changes it, and compared by host, port and database name.
+- **Why:** a schema per test is isolated, can run in parallel, needs no extra privileges and exercises the schema script itself. The safety check keeps the tests away from a production database. Capturing the URL early matters, because the autouse fixture overwrites the variable, and a later comparison would always be against SQLite.
+
+### 33. The parallel tests run on both backends
+
+- **Suggested:** the open question was whether `tests/test_parallel.py` should run on PostgreSQL.
+- **Decided:** all four tests run on both backends, with the assertions unchanged. A 503 or 500 there is a finding to investigate, not a reason to widen the allowed set.
+- **Why:** real concurrency and row locks are where PostgreSQL differs most from SQLite, and the farm-delete race exercises the rollback-then-`check_references` path (entry 28).
 
 ## 12. Non-goals and deferred
 
