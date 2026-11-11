@@ -164,7 +164,7 @@ Only the lines named here change. The other lines of each entry stay as written.
 
 **Entry 2** (the environment variable part is removed). Replace the Decided and Why lines with:
 
-- **Decided:** use the defaults, with one change. Tests override the database dependency to point at a temporary copy.
+- **Decided:** use the defaults, with one change. The SQLite tests override the database dependency to point at a temporary copy.
 - **Why:** tests must not change the real `registry.db`.
 
 **Entry 11** (the driver's error is now translated by the adapter). Replace the Decided line with:
