@@ -290,8 +290,21 @@ Inputs the spec implies but its tasks would not otherwise test. Each has its tes
 
 - [ ] **Step 1: `.env.example`**: commented examples only, placeholders and no real password: `# DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME`, `# DATABASE_URL=sqlite:///registry.db`, `# TEST_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/TEST_DBNAME`.
 - [ ] **Step 2: `README.md`**: add the four content items listed under "README content" in spec section 9 (how the database is chosen; running the schema script with `psql --single-transaction -v ON_ERROR_STOP=1`; running the PostgreSQL tests; the warning never to put a real `DATABASE_URL` in `.env.example`). Update the first paragraph, which says "built with FastAPI and SQLite", and the test note ("work on a copy of the database").
-- [ ] **Step 3: `docs/judgment-log.md`**: append to the end of entry 2 the line `- **Update:** the "no environment variable" part is replaced by entry 17. The rest of this entry still stands.` Then append entries 17 to 33 exactly as written in spec section 11, with `##` headings (the log uses `## N. Title`). The 16 existing entries are untouched.
-- [ ] **Step 4: Check the log:** `grep -c '^## ' docs/judgment-log.md` prints `33`; `git diff docs/judgment-log.md` shows only additions.
+- [ ] **Step 3: `docs/judgment-log.md`**: edit entries 1, 2 and 11 in place, with no "Update:" notes, using the replacement lines in spec section 11 ("Edits to existing entries"). Then append entries 17 to 33 exactly as written in spec section 11, with `##` headings (the log uses `## N. Title`).
+- [ ] **Step 4: Check the log.** Run:
+
+  ```bash
+  python3 - <<'EOF'
+  import re, subprocess
+  old = subprocess.check_output(["git", "show", "HEAD:./docs/judgment-log.md"], text=True)
+  new = open("docs/judgment-log.md").read()
+  split = lambda t: re.split(r"(?m)^(?=## \d+\. )", t)[1:]
+  o, n = split(old), split(new)
+  print(len(n), [i + 1 for i, (a, b) in enumerate(zip(o, n)) if a.rstrip() != b.rstrip()])
+  EOF
+  ```
+
+  Expected output: `33 [1, 2, 11]`. That means 33 entries, and only entries 1, 2 and 11 differ from the committed log. Also run `grep -n "Update:" docs/judgment-log.md`; expect no output.
 - [ ] **Step 5: Final verification, in order, reporting the real output of each:**
   - `uv run pytest -q` (default run, expect all passed, PostgreSQL variants skipped).
   - `DATABASE_URL=postgresql://postgres:x@127.0.0.1:1/registry uv run pytest -q` (a PostgreSQL URL in the environment; expect the same result as the default run).

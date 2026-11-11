@@ -152,15 +152,30 @@ Run the default suite, then the PostgreSQL run against the local throwaway conta
 
 ## 11. Judgment log
 
-Every entry is one decision, in the existing format (Suggested / Decided / Why). The 16 existing entries stay. Entry 2 gets a note at its end, and entries 17 to 33 are new. The entries are written during implementation, from the text below.
+Every entry is one decision, in the existing format (Suggested / Decided / Why). Outdated text in existing entries is edited in place, with no "Update:" notes. Entries 1, 2 and 11 change; entries 3 to 10 and 12 to 16 stay exactly as they are. Entries 17 to 33 are new. The entries are written during implementation, from the text below.
 
-**Entry 2, note added at the end:** "Update: the 'no environment variable' part is replaced by entry 17. The rest of this entry still stands." The 12 defaults and the temp-copy test approach remain in force.
+### Edits to existing entries
+
+Only the lines named here change. The other lines of each entry stay as written.
+
+**Entry 1** (database failures are classified in `db.py`; `errors.py` turns them into 503). Replace the Decided line with:
+
+- **Decided:** `db.py` classifies the driver's errors and raises its own `DatabaseUnavailable`. `errors.py` has the exception handler that turns it into 503. `db.py` knows nothing about HTTP.
+
+**Entry 2** (the environment variable part is removed). Replace the Decided and Why lines with:
+
+- **Decided:** use the defaults, with one change. Tests override the database dependency to point at a temporary copy.
+- **Why:** tests must not change the real `registry.db`.
+
+**Entry 11** (the driver's error is now translated by the adapter). Replace the Decided line with:
+
+- **Decided:** rely on the UNIQUE constraint and turn `IntegrityViolation` into 409.
 
 ### 17. DATABASE_URL and the .env file
 
 - **Suggested:** the agent proposed that the URL scheme picks the backend (`postgresql://` for PostgreSQL, `sqlite:///path` for SQLite), and that an unset variable means the local `registry.db`.
 - **Decided:** accepted, with four additions: a relative SQLite path resolves against the service directory, an empty value counts as unset, both `postgresql://` and `postgres://` are accepted, and the password is never shown. `.env` is loaded with python-dotenv from the service directory, and a real environment variable wins over the file. The URL is parsed at app startup and stored on `app.state`. A committed `.env.example` holds placeholders only.
-- **Why:** entry 2's "no environment variable" was right when it was written, because the first task did not ask for one. This task requires `DATABASE_URL` explicitly. An unset variable means SQLite, so local runs and the default tests need no configuration. Parsing at startup makes a bad URL visible at deploy, and `app.state` (not a module-level cache) keeps one test from inheriting another test's database.
+- **Why:** the task requires `DATABASE_URL` explicitly. An unset variable means SQLite, so local runs and the default tests need no configuration. Parsing at startup makes a bad URL visible at deploy, and `app.state` (not a module-level cache) keeps one test from inheriting another test's database.
 
 ### 18. A thin adapter over raw SQL, not an ORM
 
