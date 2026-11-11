@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from db import DB_PATH, connect, get_db
+from db import DB_PATH, Connection, connect, get_db
 from main import app
 
 
 def use_database(path: Path) -> None:
-    def override_get_db() -> Iterator[sqlite3.Connection]:
+    def override_get_db() -> Iterator[Connection]:
         conn = connect(path)
         try:
             yield conn
@@ -42,7 +42,7 @@ def unavailable_client(tmp_path: Path) -> Iterator[TestClient]:
 
 @pytest.fixture
 def broken_client() -> Iterator[TestClient]:
-    def override_get_db() -> Iterator[sqlite3.Connection]:
+    def override_get_db() -> Iterator[Connection]:
         raise RuntimeError("secret internal message")
         yield
 
@@ -74,7 +74,7 @@ def locked_client(tmp_path: Path) -> Iterator[TestClient]:
     lock = sqlite3.connect(test_db)
     lock.execute("BEGIN IMMEDIATE")  # Holds the write lock until the test ends.
 
-    def override_get_db() -> Iterator[sqlite3.Connection]:
+    def override_get_db() -> Iterator[Connection]:
         conn = connect(test_db)
         # Wait 0.1 s for the lock instead of the default 5 s, so the test stays fast.
         conn.execute("PRAGMA busy_timeout = 100")

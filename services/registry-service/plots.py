@@ -1,11 +1,11 @@
-import sqlite3
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, field_validator
 
-from db import get_db
+import db
+from db import IntegrityViolation, get_db
 from validation import (
     Latitude,
     Longitude,
@@ -61,7 +61,7 @@ class PlotUpdate(BaseModel):
 
 
 def check_references(
-    conn: sqlite3.Connection, farm_id: str, crop_id: str, soil_id: str, emitter_id: str
+    conn: db.Connection, farm_id: str, crop_id: str, soil_id: str, emitter_id: str
 ) -> None:
     # Checked in this order: farm first, then the three catalogue ids.
     checks = [
@@ -77,7 +77,7 @@ def check_references(
 
 @router.get("/plots")
 def list_plots(
-    conn: Annotated[sqlite3.Connection, Depends(get_db)], farm_id: str | None = None
+    conn: Annotated[db.Connection, Depends(get_db)], farm_id: str | None = None
 ) -> list[dict[str, str | float]]:
     if farm_id is None:
         rows = conn.execute(f"SELECT {PLOT_COLUMNS} FROM plots ORDER BY id").fetchall()
@@ -89,7 +89,7 @@ def list_plots(
 
 
 @router.get("/plots/{plot_id}")
-def get_plot(plot_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> dict[str, str | float]:
+def get_plot(plot_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str | float]:
     row = conn.execute(f"SELECT {PLOT_COLUMNS} FROM plots WHERE id = ?", (plot_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Plot not found")
@@ -97,7 +97,7 @@ def get_plot(plot_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)])
 
 
 @router.post("/plots", status_code=201)
-def create_plot(body: PlotCreate, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> dict[str, str | float]:
+def create_plot(body: PlotCreate, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str | float]:
     check_references(conn, body.farm_id, body.crop_id, body.soil_id, body.emitter_id)
     plot_id = str(uuid.uuid4())
     placeholders = ", ".join(["?"] * 12)
@@ -120,7 +120,7 @@ def create_plot(body: PlotCreate, conn: Annotated[sqlite3.Connection, Depends(ge
             ),
         )
         conn.commit()
-    except sqlite3.IntegrityError:
+    except IntegrityViolation:
         # The write failed. Check the references again, in case one was removed after the first check.
         check_references(conn, body.farm_id, body.crop_id, body.soil_id, body.emitter_id)
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME_DETAIL) from None
@@ -129,7 +129,7 @@ def create_plot(body: PlotCreate, conn: Annotated[sqlite3.Connection, Depends(ge
 
 @router.patch("/plots/{plot_id}")
 def update_plot(
-    plot_id: str, body: PlotUpdate, conn: Annotated[sqlite3.Connection, Depends(get_db)]
+    plot_id: str, body: PlotUpdate, conn: Annotated[db.Connection, Depends(get_db)]
 ) -> dict[str, str | float]:
     row = conn.execute(f"SELECT {PLOT_COLUMNS} FROM plots WHERE id = ?", (plot_id,)).fetchone()
     if row is None:
@@ -160,7 +160,7 @@ def update_plot(
             ),
         )
         conn.commit()
-    except sqlite3.IntegrityError:
+    except IntegrityViolation:
         check_references(conn, merged["farm_id"], merged["crop_id"], merged["soil_id"], merged["emitter_id"])
         raise HTTPException(status_code=409, detail=DUPLICATE_NAME_DETAIL) from None
     if cursor.rowcount == 0:
@@ -169,7 +169,7 @@ def update_plot(
 
 
 @router.delete("/plots/{plot_id}", status_code=204)
-def delete_plot(plot_id: str, conn: Annotated[sqlite3.Connection, Depends(get_db)]) -> Response:
+def delete_plot(plot_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> Response:
     cursor = conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
     conn.commit()
     if cursor.rowcount == 0:

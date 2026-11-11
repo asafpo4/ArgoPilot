@@ -1,4 +1,3 @@
-import sqlite3
 from http import HTTPStatus
 
 from fastapi import Request
@@ -6,12 +5,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from db import DatabaseUnavailable
+
 # The code for each HTTP status we return. Any other status raises KeyError,
 # and the unexpected error handler turns it into a 500.
 CODE_BY_STATUS = {404: "NOT_FOUND", 405: "VALIDATION", 409: "CONFLICT", 422: "VALIDATION"}
-
-# These SQLite codes mean the database cannot be used right now.
-UNAVAILABLE_SQLITE_ERRORS = {"SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN"}
 
 
 def problem_response(
@@ -47,12 +45,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return problem_response(422, "VALIDATION", details)
 
 
-async def database_unavailable_handler(request: Request, exc: sqlite3.OperationalError) -> JSONResponse:
-    if exc.sqlite_errorname not in UNAVAILABLE_SQLITE_ERRORS:
-        # A bug, such as a missing table. Re-raise it, so the unexpected error handler
-        # returns 500 and the server logs the error.
-        raise exc
-    # The raw sqlite message is not sent to the client.
+async def database_unavailable_handler(request: Request, exc: DatabaseUnavailable) -> JSONResponse:
+    # The driver message is not sent to the client.
     return problem_response(503, "UNAVAILABLE", "Database unavailable", {"Retry-After": "5"})
 
 
