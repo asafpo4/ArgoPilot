@@ -1,6 +1,6 @@
 import logging
 import sqlite3
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,7 +13,6 @@ DB_PATH = config.DEFAULT_SQLITE_PATH
 # These SQLite codes mean the database cannot be used right now (judgment log, entry 6).
 UNAVAILABLE_SQLITE_ERRORS = {"SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN"}
 
-Result = Any  # A cursor: fetchone(), fetchall(), rowcount; rows work with dict(row).
 
 
 class DatabaseUnavailable(Exception):
@@ -22,6 +21,30 @@ class DatabaseUnavailable(Exception):
 
 class IntegrityViolation(Exception):
     """A constraint was violated. The transaction has been rolled back."""
+
+
+class Result:
+    """A cursor-like result. Errors raised while fetching go through the same translation."""
+
+    def __init__(self, cursor: Any, translate: Callable[[Exception], None]) -> None:
+        self._cursor = cursor
+        self._translate = translate
+
+    @property
+    def rowcount(self) -> int:
+        return self._cursor.rowcount
+
+    def fetchone(self) -> Any:
+        try:
+            return self._cursor.fetchone()
+        except Exception as exc:
+            self._translate(exc)
+
+    def fetchall(self) -> list[Any]:
+        try:
+            return self._cursor.fetchall()
+        except Exception as exc:
+            self._translate(exc)
 
 
 class Connection:
@@ -60,7 +83,7 @@ class Connection:
         if "%" in sql:
             raise ValueError("SQL must not contain a literal %")
         try:
-            return self.raw.execute(self._prepare(sql), params)
+            return Result(self.raw.execute(self._prepare(sql), params), self._translate)
         except Exception as exc:
             self._translate(exc)
 
