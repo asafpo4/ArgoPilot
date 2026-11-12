@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
+from psycopg.conninfo import conninfo_to_dict
 
 SERVICE_DIR = Path(__file__).resolve().parent
 DEFAULT_SQLITE_PATH = SERVICE_DIR / "registry.db"
@@ -69,7 +70,13 @@ def parse_database_url(
         raise ConfigError("DATABASE_URL is not a valid URL") from None
     if scheme in ("postgres", "postgresql"):
         rest = value[len(parts.scheme):]
-        return PostgresTarget("postgresql" + rest)
+        normalized = "postgresql" + rest
+        try:
+            conninfo_to_dict(normalized)
+        except Exception:
+            # Fixed message, original suppressed: libpq's error text can hold the password.
+            raise ConfigError("DATABASE_URL is not a valid PostgreSQL URL") from None
+        return PostgresTarget(normalized)
     if scheme == "sqlite":
         if parts.netloc:
             raise ConfigError("DATABASE_URL with scheme 'sqlite' must look like sqlite:///path")

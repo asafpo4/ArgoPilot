@@ -1,4 +1,5 @@
 import os
+import traceback
 from pathlib import Path
 
 import pytest
@@ -82,3 +83,26 @@ def test_load_environment_fills_missing_but_never_overrides(tmp_path, monkeypatc
         assert os.environ["CFG_TEST_B"] == "keep"
     finally:
         os.environ.pop("CFG_TEST_A", None)
+
+
+@pytest.mark.parametrize(
+    "url, fragments",
+    [
+        ("postgresql://u:secr%zzet@127.0.0.1:1/db", ["secr", "zzet", "u:", "127.0.0.1"]),
+        ("postgresql://us%zzer:pw@h/db", ["us", "zzer", "pw", "h/db"]),
+        ("postgresql://u:pw@h/d%zzb", ["pw", "zzb", "u:", "h/d"]),
+    ],
+)
+def test_postgres_url_libpq_cannot_parse_is_an_error_without_leaking(url, fragments):
+    with pytest.raises(ConfigError) as excinfo:
+        parse_database_url(url)
+    shown = str(excinfo.value)
+    formatted = "".join(traceback.format_exception(excinfo.value))
+    assert url not in shown
+    assert url not in formatted
+    for fragment in fragments:
+        assert fragment not in shown
+    for fragment in fragments:
+        if fragment in ("us", "h/db", "h/d"):
+            continue  # too short to be distinctive against the source lines shown in a traceback
+        assert fragment not in formatted.split("ConfigError", 1)[-1]

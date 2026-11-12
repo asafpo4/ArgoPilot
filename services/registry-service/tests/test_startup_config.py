@@ -1,3 +1,5 @@
+import traceback
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -58,3 +60,17 @@ def test_postgres_url_in_environment_keeps_default_fixtures_on_sqlite(monkeypatc
         response = fresh.get("/v1/crops")
         assert response.status_code == 200
         assert response.json()
+
+
+def test_unparsable_postgres_url_fails_startup_without_leaking(monkeypatch):
+    url = "postgresql://u:secr%zzet@127.0.0.1:1/db"
+    monkeypatch.setenv("DATABASE_URL", url)
+    with pytest.raises(ConfigError) as excinfo:
+        with TestClient(app):
+            pass
+    formatted = "".join(traceback.format_exception(excinfo.value))
+    for text in (str(excinfo.value), formatted.split("ConfigError", 1)[-1]):
+        assert "secr" not in text
+        assert "zzet" not in text
+        assert url not in text
+    assert url not in formatted
