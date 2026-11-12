@@ -76,3 +76,14 @@ def test_unparsable_postgres_url_fails_startup_without_leaking(monkeypatch):
         assert "zzet" not in text
         assert url not in text
     assert url not in formatted
+
+
+def test_unencoded_at_in_password_fails_startup_without_leaking(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:secHEAD@retTAIL@127.0.0.1:1/db")
+    with pytest.raises(ConfigError) as excinfo:
+        with TestClient(app):
+            pass
+    only = "".join(traceback.format_exception_only(excinfo.value))
+    assert excinfo.value.__cause__ is None
+    for fragment in ("secHEAD", "retTAIL", "user", "127.0.0.1"):
+        assert fragment not in only

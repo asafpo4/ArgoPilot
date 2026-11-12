@@ -106,3 +106,116 @@ def test_postgres_url_libpq_cannot_parse_is_an_error_without_leaking(url, fragme
         if fragment in ("us", "h/db", "h/d"):
             continue  # too short to be distinctive against the source lines shown in a traceback
         assert fragment not in formatted.split("ConfigError", 1)[-1]
+
+
+FIXED_MESSAGE = "DATABASE_URL is not a valid PostgreSQL URL"
+
+
+def _assert_fixed_error(url, fragments):
+    with pytest.raises(ConfigError) as excinfo:
+        parse_database_url(url)
+    exc = excinfo.value
+    assert str(exc) == FIXED_MESSAGE
+    assert exc.__cause__ is None
+    assert exc.__suppress_context__ is True
+    only = "".join(traceback.format_exception_only(exc))
+    for fragment in fragments:
+        assert fragment not in only
+
+
+def test_unencoded_at_in_password_is_rejected_without_leaking():
+    _assert_fixed_error(
+        "postgresql://user:secHEAD@retTAIL@127.0.0.1:1/db",
+        ["secHEAD", "retTAIL", "user", "127.0.0.1"],
+    )
+
+
+def test_unencoded_slash_in_password_is_rejected_without_leaking():
+    _assert_fixed_error("postgresql://user:pa/SECRET@h/db", ["pa/", "SECRET", "user"])
+
+
+def test_non_numeric_port_is_rejected_without_echoing_it():
+    _assert_fixed_error("postgresql://u:pw@h:notaport/db", ["notaport"])
+
+
+def test_query_parameters_conflicting_with_the_netloc_are_rejected():
+    _assert_fixed_error(
+        "postgresql://u@placeholder/x?host=h2&port=5433&dbname=real", ["placeholder", "real"]
+    )
+    _assert_fixed_error("postgresql://u:pw@h/db?user=other", ["other"])
+    _assert_fixed_error("postgresql://u:pw@h/db?password=other", ["other"])
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql:///db?host=/var/run/postgresql",
+        "postgresql://u:pw@h:5432/db?sslmode=require",
+        "postgresql://u:@h/db",
+        "postgresql://u:pw@[::1]/db",
+        "postgresql://u:pw@[::1]:5433/db",
+        "postgresql://h",
+        "postgresql://u:pw@h/",
+        "postgresql://h1,h2/db",
+        "postgresql://u:pw@h1:1,h2:2/db",
+        "postgresql://u:pw@h/db?options=-csearch_path%3Dtest_x&sslmode=require",
+        "postgres://u:p%40ss%3Aw%2Frd@H/db",
+        "postgresql://us%40er:pw@h/d%20b",
+    ],
+)
+def test_valid_postgres_urls_are_accepted(url):
+    target = parse_database_url(url)
+    assert isinstance(target, PostgresTarget)
+    assert target.url == "postgresql" + url[url.index("://"):]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://u:p%2Fq%23r%3Fs%40t%3Au@h/db",
+        "postgresql://u:p%2Fq%23r%3Fs%40t%3Au@h:5433/db?sslmode=require&application_name=zzz",
+    ],
+)
+def test_repr_and_str_show_no_password_and_no_query(url):
+    target = parse_database_url(url)
+    _assert_redacted(target)
+
+
+@pytest.mark.parametrize("url", ["postgresql://u:p#x@h/db", "postgresql://u:p?x@h/db"])
+def test_repr_hides_a_password_urlsplit_would_misread(url):
+    # libpq accepts these, startup rejects them; the display must still be safe.
+    _assert_redacted(PostgresTarget(url))
+
+
+def _assert_redacted(target):
+    for text in (repr(target), str(target)):
+        for secret in ("p/q", "p%2Fq", "q#r", "%23", "s?t", "s@t", "t:u", "zzz", "p#x", "p?x"):
+            assert secret not in text
+        assert "***" in text
+        assert "?" not in text
+        assert "sslmode" not in text
+
+
+def test_repr_shape_for_a_simple_url():
+    t = parse_database_url("postgres://u:pw@h:5433/db?sslmode=require")
+    assert str(t) == "postgresql://u:***@h:5433/db"
+    assert repr(t) == "PostgresTarget(url='postgresql://u:***@h:5433/db')"
+    assert str(parse_database_url("postgresql://h/db")) == "postgresql://h/db"
+
+
+def test_same_database_follows_libpq_defaults_and_overrides():
+    assert same_database("postgresql://registry@db", "postgresql://registry@db/registry")
+    assert same_database(
+        "postgresql://u@placeholder/x?host=H&port=5433&dbname=real", "postgresql://u@H:5433/real"
+    )
+    assert not same_database(
+        "postgresql://u@placeholder/x?host=H&port=5433&dbname=real", "postgresql://u@H:5433/x"
+    )
+    assert not same_database("postgresql://registry@db", "postgresql://registry@db/other")
+    assert same_database("postgresql://u@h/d%62", "postgresql://u@h/db")
+
+
+def test_same_database_returns_false_for_urls_libpq_cannot_parse():
+    good = "postgresql://u:pw@h/db"
+    assert not same_database("postgresql://u:secr%zzet@h/db", good)
+    assert not same_database(good, "postgresql://u:secr%zzet@h/db")
