@@ -51,6 +51,8 @@ def test_postgres_dot_env_does_not_affect_default_run(client, tmp_path):
         assert second.get("/v1/crops").status_code == 200
 
 
+# Only meaningful on the SQLite get_db override; PostgreSQL uses the real get_db.
+@pytest.mark.parametrize("database", ["sqlite"], indirect=True)
 def test_postgres_url_in_environment_keeps_default_fixtures_on_sqlite(monkeypatch, client):
     monkeypatch.setenv("DATABASE_URL", CLOSED_PORT_POSTGRES)
     with TestClient(app) as fresh:
