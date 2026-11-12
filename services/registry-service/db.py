@@ -24,6 +24,23 @@ UNAVAILABLE_SQLITE_ERRORS = {"SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN"}
 PG_UNAVAILABLE_SQLSTATES = frozenset({"57P01", "57P02", "57P03", "53300", "55P03", "40001", "40P01"})
 
 
+def _log_unavailable(exc: Exception) -> None:
+    """Log one WARNING for a DatabaseUnavailable. Never formats pgconn, repr(exc) or the URL.
+
+    The message text is included only for errors known not to carry connection secrets:
+    SQLite errors and psycopg.OperationalError (server and network failures).
+    """
+    code = getattr(exc, "sqlite_errorname", None) or getattr(exc, "sqlstate", None) or ""
+    if isinstance(exc, (sqlite3.Error, psycopg.OperationalError)):
+        logger.warning("Database unavailable: %s %s: %s", type(exc).__name__, code, exc)
+    else:
+        logger.warning(
+            "Database unavailable: %s %s: invalid PostgreSQL connection settings (details withheld)",
+            type(exc).__name__,
+            code,
+        )
+
+
 class DatabaseUnavailable(Exception):
     """The database cannot be used right now."""
 
@@ -68,12 +85,7 @@ class Connection:
         return "other"
 
     def _unavailable(self, exc: Exception) -> DatabaseUnavailable:
-        logger.warning(
-            "Database unavailable: %s %s: %s",
-            type(exc).__name__,
-            getattr(exc, "sqlite_errorname", None) or getattr(exc, "sqlstate", None) or "",
-            exc,
-        )
+        _log_unavailable(exc)
         return DatabaseUnavailable("Database unavailable")
 
     def _translate(self, exc: Exception) -> None:
@@ -177,11 +189,8 @@ class PostgresConnection(Connection):
 def connect_postgres(url: str) -> Connection:
     try:
         raw = psycopg.connect(postgres_conninfo(url), row_factory=psycopg.rows.dict_row)
-    except psycopg.Error as exc:
-        # Log only the class, SQLSTATE and message: never the URL, pgconn or parameters.
-        logger.warning(
-            "Database unavailable: %s %s: %s", type(exc).__name__, exc.sqlstate or "", exc
-        )
+    except Exception as exc:
+        _log_unavailable(exc)
         raise DatabaseUnavailable("Database unavailable") from exc
     return PostgresConnection(raw)
 

@@ -62,6 +62,8 @@ def test_conninfo_sets_timeouts_and_appends_to_existing_options() -> None:
     ("exc", "broken", "expected"),
     [
         (sqlstate_error("08006"), False, "unavailable"),
+        (sqlstate_error("08001"), False, "unavailable"),
+        (sqlstate_error("08003"), False, "unavailable"),
         *[(sqlstate_error(code), False, "unavailable") for code in sorted(db.PG_UNAVAILABLE_SQLSTATES)],
         (psycopg.errors.AdminShutdown(), False, "unavailable"),
         (psycopg.OperationalError(), True, "unavailable"),
@@ -85,21 +87,30 @@ def test_integrity_error_rolls_back_then_raises() -> None:
     assert raw.rollbacks == 1
 
 
-def test_failed_rollback_becomes_unavailable() -> None:
+def registry_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == "registry.db" and r.levelno == logging.WARNING]
+
+
+def test_failed_rollback_becomes_unavailable(caplog: pytest.LogCaptureFixture) -> None:
     raw = FakeRaw(
         execute_error=psycopg.errors.UniqueViolation(),
         rollback_error=psycopg.OperationalError(),
         broken=True,
     )
     conn = db.PostgresConnection(raw)
-    with pytest.raises(DatabaseUnavailable):
-        conn.execute("INSERT INTO t VALUES (?)", (1,))
+    with caplog.at_level(logging.WARNING, logger="registry.db"):
+        with pytest.raises(DatabaseUnavailable):
+            conn.execute("INSERT INTO t VALUES (?)", (1,))
+    assert raw.rollbacks == 1
+    assert len(registry_warnings(caplog)) == 1
 
 
-def test_commit_errors_are_translated() -> None:
+def test_commit_errors_are_translated(caplog: pytest.LogCaptureFixture) -> None:
     conn = db.PostgresConnection(FakeRaw(commit_error=psycopg.errors.SerializationFailure()))
-    with pytest.raises(DatabaseUnavailable):
-        conn.commit()
+    with caplog.at_level(logging.WARNING, logger="registry.db"):
+        with pytest.raises(DatabaseUnavailable):
+            conn.commit()
+    assert len(registry_warnings(caplog)) == 1
 
 
 def test_unavailable_log_never_contains_password(caplog: pytest.LogCaptureFixture) -> None:
@@ -118,3 +129,45 @@ def test_other_errors_pass_through_unchanged() -> None:
     with pytest.raises(psycopg.errors.UndefinedTable) as info:
         conn.execute("SELECT 1")
     assert info.value is error
+
+
+def test_malformed_percent_escape_in_password_is_never_logged(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(DatabaseUnavailable):
+            db.connect_postgres("postgresql://u:secr%zzet@127.0.0.1:1/db")
+    for secret in ("secr%zzet", "secr", "zzet"):
+        assert secret not in caplog.text
+    assert len(registry_warnings(caplog)) == 1
+
+
+def test_non_operational_connect_error_text_is_withheld(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise psycopg.ProgrammingError("bad option for secretpw")
+
+    monkeypatch.setattr(psycopg, "connect", fail)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(DatabaseUnavailable):
+            db.connect_postgres("postgresql://u:p@127.0.0.1:1/db")
+    assert "secretpw" not in caplog.text
+    assert "ProgrammingError" in caplog.text
+    assert len(registry_warnings(caplog)) == 1
+
+
+def test_operational_connect_error_keeps_the_cause(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise psycopg.OperationalError(
+            'connection to server at "127.0.0.1", port 5432 failed: '
+            'FATAL:  password authentication failed for user "u"'
+        )
+
+    monkeypatch.setattr(psycopg, "connect", fail)
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(DatabaseUnavailable):
+            db.connect_postgres("postgresql://u:urlpw@127.0.0.1:5432/db")
+    assert "password authentication failed" in caplog.text
+    assert "urlpw" not in caplog.text
+    assert len(registry_warnings(caplog)) == 1
