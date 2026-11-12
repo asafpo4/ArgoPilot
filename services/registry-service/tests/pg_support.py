@@ -62,6 +62,11 @@ def check_comparable_test_url(test_url: str) -> None:
     try:
         parts = urlsplit(test_url.strip())
         ok = parts.scheme.lower() in ("postgres", "postgresql") and bool(parts.hostname)
+        if ok:
+            keys = {k.lower() for k, _ in parse_qsl(parts.query, keep_blank_values=True)}
+            hostpart = parts.netloc.rpartition("@")[2]
+            # The comparison cannot read these.
+            ok = not (keys & {"service", "hostaddr"}) and "," not in hostpart
     except ValueError:
         ok = False
     if not ok:

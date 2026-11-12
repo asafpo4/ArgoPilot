@@ -219,3 +219,48 @@ def test_same_database_returns_false_for_urls_libpq_cannot_parse():
     good = "postgresql://u:pw@h/db"
     assert not same_database("postgresql://u:secr%zzet@h/db", good)
     assert not same_database(good, "postgresql://u:secr%zzet@h/db")
+
+
+LEAK_URLS = [
+    ("postgresql://user:2024/Secret@127.0.0.1:1/db", ["Secret", "2024", "user", "127.0.0.1"]),
+    ("postgresql://svcuser.invalid:2024/Secret@db.example:5432/app", ["Secret", "2024", "svcuser", "db.example"]),
+    ("postgresql://svcuser.invalid:/Secret@db.example/app", ["Secret", "svcuser", "db.example"]),
+    ("postgresql://us.invalid/er:hunter2@127.0.0.1:1/app", ["hunter2", "us.invalid", "127.0.0.1"]),
+    ("postgresql://user:12/SECRET@h1.invalid,127.0.0.1:1/db", ["SECRET", "h1.invalid", "127.0.0.1"]),
+]
+
+
+@pytest.mark.parametrize("url, fragments", LEAK_URLS)
+def test_unencoded_at_in_the_path_is_rejected_without_leaking(url, fragments):
+    _assert_fixed_error(url, fragments)
+
+
+def test_repr_of_a_target_built_from_a_misread_url_never_shows_the_database_name():
+    t = PostgresTarget("postgresql://user:2024/Secret@127.0.0.1:1/db")
+    for text in (repr(t), str(t)):
+        assert "Secret" not in text
+        assert "127.0.0.1" not in text
+
+
+def test_encoded_at_in_database_name_is_accepted():
+    assert isinstance(parse_database_url("postgresql://u:pw@h/my%40db"), PostgresTarget)
+
+
+def test_multi_host_skip_keys_on_the_netloc_not_on_libpq():
+    _assert_fixed_error("postgresql://u:pw@h1,h2/db?host=x,y", ["h1", "x,y"])
+    _assert_fixed_error("postgresql://u@placeholder/db?host=a,b", ["placeholder", "a,b"])
+    parse_database_url("postgresql://u:pw@h1:1,h2:2/db")
+    parse_database_url("postgresql://h1,h2:1/db")
+
+
+def test_same_database_unknown_name_matches_any_name_on_same_host_and_port():
+    assert same_database("postgresql://localhost", "postgresql://asaf@localhost")
+    assert same_database("postgresql://localhost", "postgresql://localhost/other")
+    assert same_database("postgresql://localhost/other", "postgresql://localhost")
+    assert not same_database("postgresql://u@localhost/a", "postgresql://u@localhost/b")
+    assert not same_database("postgresql://localhost", "postgresql://otherhost/other")
+
+
+def test_leading_zero_port_is_accepted():
+    assert isinstance(parse_database_url("postgresql://u@h:05432/db"), PostgresTarget)
+    assert same_database("postgresql://u@h:05432/db", "postgresql://u@h/db")

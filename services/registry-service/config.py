@@ -47,6 +47,8 @@ class PostgresTarget:
         elif params.get("password"):
             netloc = f":***@{netloc}"
         dbname = params.get("dbname")
+        if dbname and ("@" in dbname or "/" in dbname):
+            return "postgresql://***"  # libpq read part of a misplaced password as the name
         path = "/" + quote(dbname, safe="") if dbname else ""
         return f"postgresql://{netloc}{path}"
 
@@ -62,11 +64,31 @@ def load_environment(env_file: Path | None = None) -> None:
     load_dotenv(env_file if env_file is not None else SERVICE_DIR / ".env", override=False)
 
 
+def _norm_port(value: str) -> str:
+    return str(int(value)) if value.isascii() and value.isdigit() else value
+
+
+def _netloc_hosts_and_ports(netloc: str) -> tuple[list[str], list[str]]:
+    """Split the host part of a netloc into per-host names and ports (as written)."""
+    hostport = netloc.rpartition("@")[2]
+    hosts, ports = [], []
+    for segment in hostport.split(","):
+        if segment.startswith("["):
+            host, _, rest = segment[1:].partition("]")
+            port = rest[1:] if rest.startswith(":") else ""
+        else:
+            host, _, port = segment.rpartition(":") if ":" in segment else (segment, "", "")
+        hosts.append(unquote(host).lower())
+        ports.append(port)
+    return hosts, ports
+
+
 def _libpq_agrees_with_urlsplit(url: str) -> bool:
     """libpq decides what a URL means; reject URLs where urlsplit reads it differently.
 
     For user, password, host, port and database name: a non-empty urlsplit value must equal
     libpq's value. Where urlsplit finds nothing, libpq may supply it (socket form, defaults).
+    An unencoded @ in the path is always rejected: it means a password was cut at a /.
     """
     params = conninfo_to_dict(url)
     host = params.get("host") or ""
@@ -76,26 +98,25 @@ def _libpq_agrees_with_urlsplit(url: str) -> bool:
     if port is not None and not _port_ok(port, host):
         return False
     parts = urlsplit(url)
-    expected = {
-        "user": parts.username,
-        "password": parts.password,
-        "dbname": parts.path[1:] if parts.path.startswith("/") else parts.path,
-    }
-    if "," not in host:  # multi-host: urlsplit cannot split the host list, libpq's is used
-        expected["host"] = parts.hostname
-        expected["port"] = str(parts.port) if parts.port is not None else None
-    for key, raw in expected.items():
-        if not raw:
-            continue
-        want = raw if key == "port" else unquote(raw)
-        got = params.get(key)
-        if got is None:
+    if "@" in parts.path:
+        return False
+    for key, raw in (("user", parts.username), ("password", parts.password)):
+        if raw and params.get(key) != unquote(raw):
             return False
-        if key == "host":
-            if got.lower() != want.lower():
+    path = parts.path[1:] if parts.path.startswith("/") else parts.path
+    if path and params.get("dbname") != unquote(path):
+        return False
+    hosts, ports = _netloc_hosts_and_ports(parts.netloc)
+    if any(hosts):
+        if [h.lower() for h in host.split(",")] != hosts:
+            return False
+    if any(ports):
+        got_ports = (port or "").split(",")
+        if len(got_ports) != len(ports):
+            return False
+        for want, got in zip(ports, got_ports):
+            if want and (not got or _norm_port(want) != _norm_port(got)):
                 return False
-        elif got != want:
-            return False
     return True
 
 
@@ -148,6 +169,7 @@ def parse_database_url(
 
 
 def _identity(url: str | None) -> tuple[str, str, str | None] | None:
+    """(host, port, database name); the name is None when unknown."""
     if url is None:
         return None
     try:
@@ -169,7 +191,11 @@ def _identity(url: str | None) -> tuple[str, str, str | None] | None:
 
 def same_database(url_a: str | None, url_b: str | None) -> bool:
     a, b = _identity(url_a), _identity(url_b)
-    return a is not None and a == b
+    if a is None or b is None:
+        return False
+    # An unknown database name may be any name, so it matches any name (a wrong "same"
+    # only makes the tests refuse to run; a wrong "different" could hit the real database).
+    return a[:2] == b[:2] and (a[2] is None or b[2] is None or a[2] == b[2])
 
 
 load_environment()

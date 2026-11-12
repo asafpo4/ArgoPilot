@@ -55,6 +55,19 @@ def test_check_refuses_test_urls_it_cannot_compare() -> None:
     check_comparable_test_url("postgres://h/db")
 
 
+def test_check_refuses_test_urls_with_parts_the_comparison_cannot_read() -> None:
+    for bad in (
+        "postgresql://u@h/db?service=x",
+        "postgresql://u@whatever/db?hostaddr=127.0.0.1",
+        "postgresql://u@h1,h2/db",
+        "postgresql://u:p@h:5432/db?sslmode=require&SERVICE=x",
+    ):
+        with pytest.raises(pytest.fail.Exception, match="^refusing to run") as info:
+            check_comparable_test_url(bad)
+        assert bad not in str(info.value)
+    check_comparable_test_url("postgresql://u:p@h:5432/db")
+
+
 def test_session_start_capture_happens_before_fixtures() -> None:
     url = "postgresql://u:p@nohost.invalid:5432/prod"
     env = {**os.environ, "DATABASE_URL": url, "TEST_DATABASE_URL": url}

@@ -87,3 +87,24 @@ def test_unencoded_at_in_password_fails_startup_without_leaking(monkeypatch):
     assert excinfo.value.__cause__ is None
     for fragment in ("secHEAD", "retTAIL", "user", "127.0.0.1"):
         assert fragment not in only
+
+
+@pytest.mark.parametrize(
+    "url, fragments",
+    [
+        ("postgresql://user:2024/Secret@127.0.0.1:1/db", ["Secret", "2024", "user", "127.0.0.1"]),
+        ("postgresql://svcuser.invalid:2024/Secret@db.example:5432/app", ["Secret", "2024", "svcuser", "db.example"]),
+        ("postgresql://svcuser.invalid:/Secret@db.example/app", ["Secret", "svcuser", "db.example"]),
+        ("postgresql://us.invalid/er:hunter2@127.0.0.1:1/app", ["hunter2", "us.invalid", "127.0.0.1"]),
+        ("postgresql://user:12/SECRET@h1.invalid,127.0.0.1:1/db", ["SECRET", "h1.invalid", "127.0.0.1"]),
+    ],
+)
+def test_misread_path_urls_fail_startup_without_leaking(monkeypatch, url, fragments):
+    monkeypatch.setenv("DATABASE_URL", url)
+    with pytest.raises(ConfigError) as excinfo:
+        with TestClient(app):
+            pass
+    only = "".join(traceback.format_exception_only(excinfo.value))
+    assert excinfo.value.__cause__ is None
+    for fragment in fragments:
+        assert fragment not in only
