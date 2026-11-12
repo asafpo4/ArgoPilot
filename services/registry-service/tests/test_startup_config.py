@@ -29,6 +29,8 @@ def test_unknown_scheme_fails_startup_without_leaking_url(monkeypatch):
         with TestClient(app):
             pass
     assert "s3cret" not in str(excinfo.value)
+    assert "mysql://u:s3cret@h/db" not in str(excinfo.value)
+    assert "mysql://" not in str(excinfo.value)
 
 
 def test_bad_dot_env_does_not_affect_default_run(client, tmp_path):
@@ -49,5 +51,10 @@ def test_postgres_dot_env_does_not_affect_default_run(client, tmp_path):
 
 def test_postgres_url_in_environment_keeps_default_fixtures_on_sqlite(monkeypatch, client):
     monkeypatch.setenv("DATABASE_URL", CLOSED_PORT_POSTGRES)
-    assert client.get("/v1/crops").status_code == 200
-    assert isinstance(app.state.db_target, SqliteTarget)
+    with TestClient(app) as fresh:
+        # The PostgreSQL URL reached startup and was parsed without connecting.
+        assert isinstance(app.state.db_target, config.PostgresTarget)
+        # The client fixture's SQLite override still serves requests from the temp copy.
+        response = fresh.get("/v1/crops")
+        assert response.status_code == 200
+        assert response.json()
