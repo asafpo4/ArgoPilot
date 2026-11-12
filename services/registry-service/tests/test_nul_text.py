@@ -4,6 +4,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
+import db
 from main import app
 
 DEMO_COOPERATIVE = "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001"
@@ -24,7 +25,27 @@ VALID_PLOT_FIELDS = {
 }
 
 
-def test_nul_lookup_values_keep_todays_answers(client: TestClient) -> None:
+EXPECTED_DETAIL = {
+    "/v1/farms/{farm_id}": "Farm not found",
+    "/v1/plots/{plot_id}": "Plot not found",
+    "/v1/crops/{crop_id}": "Crop not found",
+    "/v1/soils/{soil_id}": "Soil not found",
+    "/v1/emitters/{emitter_id}": "Emitter not found",
+}
+
+
+def test_nul_lookup_values_keep_todays_answers(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded: list[tuple[str, object]] = []
+    original_execute = db.Connection.execute
+
+    def spy(self, sql, params=()):  # type: ignore[no-untyped-def]
+        recorded.append((sql, params))
+        return original_execute(self, sql, params)
+
+    monkeypatch.setattr(db.Connection, "execute", spy)
+
     sites = []
     for path, operations in app.openapi()["paths"].items():
         if not path.startswith("/v1"):
@@ -51,6 +72,15 @@ def test_nul_lookup_values_keep_todays_answers(client: TestClient) -> None:
             assert response.json() == [], (method, url)
         else:
             assert response.status_code == 404, (method, url)
+            assert response.json()["detail"] == EXPECTED_DETAIL[path], (method, url)
+
+    # The answer must come before any query: no query ever received a NUL.
+    nul_queries = [
+        (sql, params)
+        for sql, params in recorded
+        if any(isinstance(value, str) and "\x00" in value for value in params)
+    ]
+    assert nul_queries == []
 
 
 @pytest.mark.parametrize(
