@@ -4,7 +4,11 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+import psycopg
+import psycopg.errors
+import psycopg.rows
 from fastapi import Request
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 import config
 from config import PostgresTarget, SqliteTarget
@@ -16,6 +20,8 @@ DB_PATH = config.DEFAULT_SQLITE_PATH
 # These SQLite codes mean the database cannot be used right now (judgment log, entry 6).
 UNAVAILABLE_SQLITE_ERRORS = {"SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN"}
 
+# These PostgreSQL SQLSTATEs mean the database cannot be used right now (class 08 is added in code).
+PG_UNAVAILABLE_SQLSTATES = frozenset({"57P01", "57P02", "57P03", "53300", "55P03", "40001", "40P01"})
 
 
 class DatabaseUnavailable(Exception):
@@ -65,7 +71,7 @@ class Connection:
         logger.warning(
             "Database unavailable: %s %s: %s",
             type(exc).__name__,
-            getattr(exc, "sqlite_errorname", ""),
+            getattr(exc, "sqlite_errorname", None) or getattr(exc, "sqlstate", None) or "",
             exc,
         )
         return DatabaseUnavailable("Database unavailable")
@@ -131,10 +137,59 @@ def connect(path: Path) -> Connection:
     return conn
 
 
+def translate_placeholders(sql: str) -> str:
+    return sql.replace("?", "%s")
+
+
+def postgres_conninfo(url: str) -> str:
+    params = conninfo_to_dict(url)
+    options = params.get("options")
+    lock_option = "-c lock_timeout=5000"
+    params["options"] = f"{options} {lock_option}" if options else lock_option
+    params["connect_timeout"] = 5
+    return make_conninfo(**params)
+
+
+def classify_postgres_error(
+    exc: Exception, broken: bool
+) -> Literal["unavailable", "integrity", "other"]:
+    if isinstance(exc, psycopg.errors.IntegrityError):
+        return "integrity"
+    sqlstate = getattr(exc, "sqlstate", None)
+    if sqlstate and (sqlstate in PG_UNAVAILABLE_SQLSTATES or sqlstate.startswith("08")):
+        return "unavailable"
+    if isinstance(exc, psycopg.OperationalError) and broken:
+        return "unavailable"
+    return "other"
+
+
+class PostgresConnection(Connection):
+    def __init__(self, raw: psycopg.Connection) -> None:
+        self.raw = raw
+
+    def _prepare(self, sql: str) -> str:
+        return translate_placeholders(sql)
+
+    def _classify(self, exc: Exception) -> Literal["unavailable", "integrity", "other"]:
+        return classify_postgres_error(exc, self.raw.broken)
+
+
+def connect_postgres(url: str) -> Connection:
+    try:
+        raw = psycopg.connect(postgres_conninfo(url), row_factory=psycopg.rows.dict_row)
+    except psycopg.Error as exc:
+        # Log only the class, SQLSTATE and message: never the URL, pgconn or parameters.
+        logger.warning(
+            "Database unavailable: %s %s: %s", type(exc).__name__, exc.sqlstate or "", exc
+        )
+        raise DatabaseUnavailable("Database unavailable") from exc
+    return PostgresConnection(raw)
+
+
 def connect_target(target: SqliteTarget | PostgresTarget) -> Connection:
     if isinstance(target, SqliteTarget):
         return connect(target.path)
-    raise NotImplementedError("PostgreSQL support is added in a later task")
+    return connect_postgres(target.url)
 
 
 def get_db(request: Request) -> Iterator[Connection]:
