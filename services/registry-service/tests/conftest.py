@@ -10,6 +10,12 @@ from db import DB_PATH, Connection, connect, get_db
 from main import app
 
 
+@pytest.fixture(autouse=True)
+def isolate_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A real environment variable beats .env, so startup never reads the developer's .env.
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(DB_PATH))
+
+
 def use_database(path: Path) -> None:
     def override_get_db() -> Iterator[Connection]:
         conn = connect(path)

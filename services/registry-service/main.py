@@ -1,3 +1,8 @@
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import config
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -14,7 +19,14 @@ from errors import (
 from farms import router as farms_router
 from plots import router as plots_router
 
-app = FastAPI(title="AgroPilot registry-service", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # A ConfigError here stops startup. Its message never contains the URL or password.
+    app.state.db_target = config.parse_database_url(os.environ.get("DATABASE_URL"))
+    yield
+
+
+app = FastAPI(title="AgroPilot registry-service", version="0.1.0", lifespan=lifespan)
 app.include_router(catalogues_router)
 app.include_router(farms_router)
 app.include_router(plots_router)

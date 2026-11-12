@@ -4,7 +4,10 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+from fastapi import Request
+
 import config
+from config import PostgresTarget, SqliteTarget
 
 logger = logging.getLogger("registry.db")
 
@@ -128,8 +131,14 @@ def connect(path: Path) -> Connection:
     return conn
 
 
-def get_db() -> Iterator[Connection]:
-    conn = connect(DB_PATH)
+def connect_target(target: SqliteTarget | PostgresTarget) -> Connection:
+    if isinstance(target, SqliteTarget):
+        return connect(target.path)
+    raise NotImplementedError("PostgreSQL support is added in a later task")
+
+
+def get_db(request: Request) -> Iterator[Connection]:
+    conn = connect_target(request.app.state.db_target)
     try:
         yield conn
     finally:
