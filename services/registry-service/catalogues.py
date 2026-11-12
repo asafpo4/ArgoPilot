@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import db
 from db import IntegrityViolation, get_db
+from validation import contains_nul
+
 
 router = APIRouter(prefix="/v1")
 
@@ -16,6 +18,8 @@ def list_crops(conn: Annotated[db.Connection, Depends(get_db)]) -> list[dict[str
 
 @router.get("/crops/{crop_id}")
 def get_crop(crop_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str]:
+    if contains_nul(crop_id):
+        raise HTTPException(status_code=404, detail="Crop not found")
     row = conn.execute("SELECT id, name FROM crops WHERE id = ?", (crop_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Crop not found")
@@ -32,6 +36,8 @@ def list_soils(conn: Annotated[db.Connection, Depends(get_db)]) -> list[dict[str
 
 @router.get("/soils/{soil_id}")
 def get_soil(soil_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str | int]:
+    if contains_nul(soil_id):
+        raise HTTPException(status_code=404, detail="Soil not found")
     row = conn.execute(
         "SELECT id, name, available_water_mm_per_m FROM soils WHERE id = ?", (soil_id,)
     ).fetchone()
@@ -48,6 +54,8 @@ def list_emitters(conn: Annotated[db.Connection, Depends(get_db)]) -> list[dict[
 
 @router.get("/emitters/{emitter_id}")
 def get_emitter(emitter_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str | float]:
+    if contains_nul(emitter_id):
+        raise HTTPException(status_code=404, detail="Emitter not found")
     row = conn.execute(
         "SELECT id, name, flow_lph FROM emitters WHERE id = ?", (emitter_id,)
     ).fetchone()

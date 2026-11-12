@@ -6,7 +6,7 @@ from pydantic import BaseModel, field_validator
 
 import db
 from db import IntegrityViolation, get_db
-from validation import RequiredName
+from validation import RequiredName, contains_nul
 
 router = APIRouter(prefix="/v1")
 
@@ -34,6 +34,8 @@ def list_farms(conn: Annotated[db.Connection, Depends(get_db)]) -> list[dict[str
 
 @router.get("/farms/{farm_id}")
 def get_farm(farm_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str]:
+    if contains_nul(farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
     row = conn.execute("SELECT id, name FROM farms WHERE id = ?", (farm_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Farm not found")
@@ -52,6 +54,8 @@ def create_farm(body: FarmCreate, conn: Annotated[db.Connection, Depends(get_db)
 def update_farm(
     farm_id: str, body: FarmUpdate, conn: Annotated[db.Connection, Depends(get_db)]
 ) -> dict[str, str]:
+    if contains_nul(farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
     changes = body.model_dump(exclude_unset=True)
     if "name" in changes:
         conn.execute("UPDATE farms SET name = ? WHERE id = ?", (changes["name"], farm_id))
@@ -64,6 +68,8 @@ def update_farm(
 
 @router.delete("/farms/{farm_id}", status_code=204)
 def delete_farm(farm_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> Response:
+    if contains_nul(farm_id):
+        raise HTTPException(status_code=404, detail="Farm not found")
     try:
         cursor = conn.execute("DELETE FROM farms WHERE id = ?", (farm_id,))
         conn.commit()

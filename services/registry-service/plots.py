@@ -12,6 +12,8 @@ from validation import (
     PlantingDate,
     PositiveNumber,
     RequiredName,
+    StoredText,
+    contains_nul,
 )
 
 router = APIRouter(prefix="/v1")
@@ -26,29 +28,29 @@ DUPLICATE_NAME_DETAIL = "Plot name already exists in this farm"
 
 
 class PlotCreate(BaseModel):
-    farm_id: str
+    farm_id: StoredText
     name: RequiredName
     area_m2: PositiveNumber
-    crop_id: str
+    crop_id: StoredText
     planting_date: PlantingDate
-    soil_id: str
+    soil_id: StoredText
     row_spacing_m: PositiveNumber
     emitter_spacing_m: PositiveNumber
-    emitter_id: str
+    emitter_id: StoredText
     lat: Latitude
     lon: Longitude
 
 
 class PlotUpdate(BaseModel):
-    farm_id: str | None = None
+    farm_id: StoredText | None = None
     name: RequiredName | None = None
     area_m2: PositiveNumber | None = None
-    crop_id: str | None = None
+    crop_id: StoredText | None = None
     planting_date: PlantingDate | None = None
-    soil_id: str | None = None
+    soil_id: StoredText | None = None
     row_spacing_m: PositiveNumber | None = None
     emitter_spacing_m: PositiveNumber | None = None
-    emitter_id: str | None = None
+    emitter_id: StoredText | None = None
     lat: Latitude | None = None
     lon: Longitude | None = None
 
@@ -79,6 +81,8 @@ def check_references(
 def list_plots(
     conn: Annotated[db.Connection, Depends(get_db)], farm_id: str | None = None
 ) -> list[dict[str, str | float]]:
+    if farm_id is not None and contains_nul(farm_id):
+        return []
     if farm_id is None:
         rows = conn.execute(f"SELECT {PLOT_COLUMNS} FROM plots ORDER BY id").fetchall()
     else:
@@ -90,6 +94,8 @@ def list_plots(
 
 @router.get("/plots/{plot_id}")
 def get_plot(plot_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str | float]:
+    if contains_nul(plot_id):
+        raise HTTPException(status_code=404, detail="Plot not found")
     row = conn.execute(f"SELECT {PLOT_COLUMNS} FROM plots WHERE id = ?", (plot_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Plot not found")
@@ -131,6 +137,8 @@ def create_plot(body: PlotCreate, conn: Annotated[db.Connection, Depends(get_db)
 def update_plot(
     plot_id: str, body: PlotUpdate, conn: Annotated[db.Connection, Depends(get_db)]
 ) -> dict[str, str | float]:
+    if contains_nul(plot_id):
+        raise HTTPException(status_code=404, detail="Plot not found")
     row = conn.execute(f"SELECT {PLOT_COLUMNS} FROM plots WHERE id = ?", (plot_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Plot not found")
@@ -170,6 +178,8 @@ def update_plot(
 
 @router.delete("/plots/{plot_id}", status_code=204)
 def delete_plot(plot_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> Response:
+    if contains_nul(plot_id):
+        raise HTTPException(status_code=404, detail="Plot not found")
     cursor = conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
     conn.commit()
     if cursor.rowcount == 0:

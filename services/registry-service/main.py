@@ -18,6 +18,7 @@ from errors import (
 )
 from farms import router as farms_router
 from plots import router as plots_router
+from validation import InvalidTextError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -34,6 +35,7 @@ app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(DatabaseUnavailable, database_unavailable_handler)
 app.add_exception_handler(UnicodeEncodeError, invalid_text_handler)
+app.add_exception_handler(InvalidTextError, invalid_text_handler)
 app.add_exception_handler(Exception, unexpected_error_handler)
 
 

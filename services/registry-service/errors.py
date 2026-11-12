@@ -50,7 +50,7 @@ async def database_unavailable_handler(request: Request, exc: DatabaseUnavailabl
     return problem_response(503, "UNAVAILABLE", "Database unavailable", {"Retry-After": "5"})
 
 
-async def invalid_text_handler(request: Request, exc: UnicodeEncodeError) -> JSONResponse:
+async def invalid_text_handler(request: Request, exc: Exception) -> JSONResponse:
     return problem_response(422, "VALIDATION", "Text contains invalid characters")
 
 
