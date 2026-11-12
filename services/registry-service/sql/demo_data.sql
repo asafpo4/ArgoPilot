@@ -1,6 +1,6 @@
 -- Demo farms and plots for local use and tests only; never run in production.
 -- Run after the schema script:
---   psql --single-transaction -v ON_ERROR_STOP=1 -f sql/demo_data.sql
+--   psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f sql/demo_data.sql
 
 INSERT INTO farms (id, name) VALUES
   ('b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001', 'Demo cooperative'),

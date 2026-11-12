@@ -23,7 +23,7 @@
 - NUL detail text is exactly `Text contains invalid characters` (422, code `VALIDATION`).
 - Test schemas start with `test_`; a fixture drops only the schema it created, by exact name.
 - Logs and error messages never contain a database password, the full URL, `e.pgconn` or SQL parameters. Log only on the 503 path.
-- Local PostgreSQL for tests: throwaway container `registry-pg-test` (already running), `TEST_DATABASE_URL=postgresql://postgres:pgtest-pass@127.0.0.1:55432/registry`. Docker client: `"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"` (plain `docker` is denied in WSL for now). Do not touch other containers.
+- Local PostgreSQL for tests: throwaway container `registry-pg-test` (already running), `TEST_DATABASE_URL=postgresql://postgres:PASSWORD@127.0.0.1:55432/registry`. Docker client: `"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"` (plain `docker` is denied in WSL for now). Do not touch other containers.
 
 ## Review Focus
 
@@ -232,7 +232,7 @@ Inputs the spec implies but its tasks would not otherwise test. Each has its tes
 - [ ] **Step 2: Run `uv run pytest tests/test_pg_infrastructure.py -q`.** Expect FAIL.
 - [ ] **Step 3: Implement** `pg_support.py` and the conftest changes. Keep SQLite `client` behavior identical.
 - [ ] **Step 4: Run the default suite** `uv run pytest -q`. Expect all pass, with every test that uses `client` reported twice (`[sqlite]` passes, `[postgres]` skipped).
-- [ ] **Step 5: Run against PostgreSQL** `TEST_DATABASE_URL=postgresql://postgres:pgtest-pass@127.0.0.1:55432/registry uv run pytest -q`. This runs the whole existing suite, the four `tests/test_parallel.py` tests and the four lone-surrogate cases on PostgreSQL. Expect all to pass. **A failure here is a finding: report it with the output, and do not weaken an assertion or widen an allowed status set.**
+- [ ] **Step 5: Run against PostgreSQL** `TEST_DATABASE_URL=postgresql://postgres:PASSWORD@127.0.0.1:55432/registry uv run pytest -q`. This runs the whole existing suite, the four `tests/test_parallel.py` tests and the four lone-surrogate cases on PostgreSQL. Expect all to pass. **A failure here is a finding: report it with the output, and do not weaken an assertion or widen an allowed status set.**
 - [ ] **Step 6: Confirm no leftovers:** `"$D" exec registry-pg-test psql -U postgres -d registry -c "\dn"` lists no `test_*` schemas.
 - [ ] **Step 7: Commit** `Add PostgreSQL test fixtures, the safety check and backend parametrization`.
 
@@ -252,7 +252,7 @@ Inputs the spec implies but its tasks would not otherwise test. Each has its tes
   - `test_cut_socket_returns_503`: override `get_db` with a function that opens `connect_postgres(pg_app_url)`, runs `SELECT 1`, shuts the socket down (`socket.socket(fileno=os.dup(conn.raw.fileno())).shutdown(socket.SHUT_RDWR)`), and yields it; `GET /v1/crops` returns 503.
   - `test_terminated_backend_returns_503`: same, but the backend is ended with `pg_terminate_backend(<pid>)` from a second connection.
   - `test_failure_log_has_cause_and_no_password`: after the wrong-password request, `caplog` has one WARNING from `registry.db` mentioning `password authentication failed` and not containing the password.
-- [ ] **Step 2: Run** `TEST_DATABASE_URL=postgresql://postgres:pgtest-pass@127.0.0.1:55432/registry uv run pytest tests/test_postgres_failures.py -q`. Expect all pass; investigate any failure rather than changing the expectation.
+- [ ] **Step 2: Run** `TEST_DATABASE_URL=postgresql://postgres:PASSWORD@127.0.0.1:55432/registry uv run pytest tests/test_postgres_failures.py -q`. Expect all pass; investigate any failure rather than changing the expectation.
 - [ ] **Step 3: Run the default suite** `uv run pytest -q`; expect these tests skipped and everything else passing.
 - [ ] **Step 4: Commit** `Test PostgreSQL failure behavior`.
 
@@ -308,6 +308,6 @@ Inputs the spec implies but its tasks would not otherwise test. Each has its tes
 - [ ] **Step 5: Final verification, in order, reporting the real output of each:**
   - `uv run pytest -q` (default run, expect all passed, PostgreSQL variants skipped).
   - `DATABASE_URL=postgresql://postgres:x@127.0.0.1:1/registry uv run pytest -q` (a PostgreSQL URL in the environment; expect the same result as the default run).
-  - `TEST_DATABASE_URL=postgresql://postgres:pgtest-pass@127.0.0.1:55432/registry uv run pytest -q` (expect all passed, none skipped except tests that need a different setup, and say which).
+  - `TEST_DATABASE_URL=postgresql://postgres:PASSWORD@127.0.0.1:55432/registry uv run pytest -q` (expect all passed, none skipped except tests that need a different setup, and say which).
   - `git status` clean; `git log --oneline` shows one commit per task; nothing pushed.
 - [ ] **Step 6: Commit** `Document PostgreSQL support and record the decisions`.
