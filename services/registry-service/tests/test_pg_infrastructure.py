@@ -11,6 +11,7 @@ import pytest
 from db import DB_PATH
 from pg_support import (
     capture_developer_database_url,
+    check_comparable_test_url,
     check_not_developer_database,
     with_options,
 )
@@ -41,6 +42,19 @@ def test_check_refuses_on_match() -> None:
     check_not_developer_database(dev, "sqlite:///x.db")
 
 
+def test_check_refuses_test_urls_it_cannot_compare() -> None:
+    for bad in (
+        "host=h dbname=prod",
+        "postgresql:///registry?host=/run/postgresql",
+        "mysql://h/db",
+    ):
+        with pytest.raises(pytest.fail.Exception, match="^refusing to run") as info:
+            check_comparable_test_url(bad)
+        assert bad not in str(info.value)
+    check_comparable_test_url("postgresql://u:p@h:5432/db")
+    check_comparable_test_url("postgres://h/db")
+
+
 def test_session_start_capture_happens_before_fixtures() -> None:
     url = "postgresql://u:p@nohost.invalid:5432/prod"
     env = {**os.environ, "DATABASE_URL": url, "TEST_DATABASE_URL": url}
@@ -54,7 +68,11 @@ def test_session_start_capture_happens_before_fixtures() -> None:
     )
     output = result.stdout + result.stderr
     assert "refusing to run" in output
+    assert result.returncode != 0
+    assert "nohost.invalid" not in output
+    assert "failed to resolve host" not in output
     assert "could not translate host name" not in output
+    assert " passed" not in output
 
 
 def schema_connection(base_url: str, schema: str) -> psycopg.Connection:
@@ -80,6 +98,13 @@ def test_catalogue_and_demo_rows_match_sqlite_seed(
     copy = tmp_path / "registry.db"
     shutil.copy(DB_PATH, copy)
     lite = sqlite3.connect(copy)
+    try:
+        compare_tables(lite, pg_base_url, pg_schema)
+    finally:
+        lite.close()
+
+
+def compare_tables(lite: sqlite3.Connection, pg_base_url: str, pg_schema: str) -> None:
     with schema_connection(pg_base_url, pg_schema) as pg:
         for table in TABLES:
             cursor = lite.execute(f"SELECT * FROM {table}")
@@ -89,4 +114,3 @@ def test_catalogue_and_demo_rows_match_sqlite_seed(
                 tuple(r) for r in pg.execute(f"SELECT {', '.join(columns)} FROM {table}").fetchall()
             )
             assert pg_rows == lite_rows, table
-    lite.close()

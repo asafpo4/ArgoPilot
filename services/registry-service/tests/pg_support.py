@@ -55,3 +55,18 @@ def with_options(url: str, options: str) -> str:
     return urlunsplit(
         (parts.scheme, parts.netloc, parts.path, urlencode(query, quote_via=quote), parts.fragment)
     )
+
+
+def check_comparable_test_url(test_url: str) -> None:
+    """Refuse a TEST_DATABASE_URL the same-database comparison cannot judge."""
+    try:
+        parts = urlsplit(test_url.strip())
+        ok = parts.scheme.lower() in ("postgres", "postgresql") and bool(parts.hostname)
+    except ValueError:
+        ok = False
+    if not ok:
+        pytest.fail(
+            "refusing to run: TEST_DATABASE_URL must be a postgresql:// or postgres:// "
+            "URL with a host",
+            pytrace=False,
+        )

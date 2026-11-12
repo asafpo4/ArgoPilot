@@ -46,6 +46,7 @@ def pg_base_url() -> str:
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         pytest.skip("TEST_DATABASE_URL is not set")
+    pg_support.check_comparable_test_url(url)
     pg_support.check_not_developer_database(url, pg_support.DEVELOPER_DATABASE_URL)
     return url
 
@@ -148,8 +149,9 @@ def broken_schema_client(
         use_database(test_db)
     else:
         url = request.getfixturevalue("pg_app_url")
+        schema = request.getfixturevalue("pg_schema")
         with psycopg.connect(url, autocommit=True) as conn:
-            conn.execute("DROP TABLE crops CASCADE")
+            conn.execute(f'DROP TABLE "{schema}".crops CASCADE')
         monkeypatch.setenv("DATABASE_URL", url)
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
