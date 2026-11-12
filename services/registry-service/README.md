@@ -27,11 +27,13 @@ Never put a real `DATABASE_URL` in `.env.example`. That file is committed and mu
 
 ### PostgreSQL schema
 
-The service never creates tables. Run the schema script by hand, with the connection taken from `DATABASE_URL` or the `PG*` variables:
+The service never creates tables. Run the schema script by hand. `psql` does not read `DATABASE_URL`, so pass it as the connection:
 
 ```bash
-psql --single-transaction -v ON_ERROR_STOP=1 -f sql/postgres_schema.sql
+psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f sql/postgres_schema.sql
 ```
+
+The `PG*` environment variables work too; then leave out the URL argument. A URL that contains a password is visible in the process list on a shared host, so use `PGPASSWORD` or `~/.pgpass` there.
 
 It creates the tables and loads the catalogues (crops, soils, emitters). That is all production gets. A second run fails, and a failure leaves nothing behind. `sql/demo_data.sql` holds demo farms and plots for local use and tests. Never load it in production.
 
@@ -59,7 +61,7 @@ Set `TEST_DATABASE_URL` to a throwaway PostgreSQL database, whose user may creat
 TEST_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/TEST_DBNAME uv run pytest
 ```
 
-Without it, the PostgreSQL tests are skipped. Each test creates its own schema `test_<hex>` and drops it afterwards. The run refuses to start if `TEST_DATABASE_URL` points at the same database as `DATABASE_URL`, or is not a `postgresql://` or `postgres://` URL with a host.
+Without it, the PostgreSQL tests are skipped. Each test creates its own schema `test_<hex>` and drops it afterwards. The PostgreSQL tests refuse to run if `TEST_DATABASE_URL` points at the same database as `DATABASE_URL`, or is not a `postgresql://` or `postgres://` URL with a host.
 
 ## Errors
 
