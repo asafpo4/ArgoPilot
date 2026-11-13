@@ -4,6 +4,9 @@ from typing import Annotated
 from pydantic import AfterValidator, Field
 
 
+MAX_NAME_LENGTH = 200
+
+
 class InvalidTextError(Exception):
     """Text that the database cannot store (it contains NUL)."""
 
@@ -23,6 +26,8 @@ def strip_and_require_name(value: str) -> str:
     stripped = value.strip()
     if not stripped:
         raise ValueError("name must not be empty")
+    if len(stripped) > MAX_NAME_LENGTH:
+        raise ValueError(f"name must be at most {MAX_NAME_LENGTH} characters")
     return stripped
 
 

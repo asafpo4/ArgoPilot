@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -89,7 +91,13 @@ def test_list_order_is_byte_order(client: TestClient, database: TestDatabase) ->
     assert ids == sorted(new_ids + DEMO_FARMS, key=str.encode)
 
 
-@pytest.mark.parametrize("name", ["חווה 🌱", "x" * 10_000])
+def assert_validation_error(response) -> None:
+    assert response.status_code == 422
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["code"] == "VALIDATION"
+
+
+@pytest.mark.parametrize("name", ["חווה 🌱", "x" * 200])
 def test_unicode_and_long_names_round_trip(client: TestClient, name: str) -> None:
     created = client.post("/v1/farms", json={"name": name})
     assert created.status_code == 201
@@ -98,6 +106,57 @@ def test_unicode_and_long_names_round_trip(client: TestClient, name: str) -> Non
     fetched = client.get(f"/v1/farms/{created.json()['id']}")
     assert fetched.status_code == 200
     assert fetched.json()["name"] == name
+
+    patched = client.patch(f"/v1/farms/{created.json()['id']}", json={"name": name + "!"[: 200 - len(name)]})
+    assert patched.status_code == 200
+
+
+def test_farm_name_over_200_characters_gives_422(client: TestClient) -> None:
+    assert_validation_error(client.post("/v1/farms", json={"name": "x" * 201}))
+    assert_validation_error(client.post("/v1/farms", json={"name": " " + "x" * 201 + " "}))
+
+    farm_id = client.post("/v1/farms", json={"name": "Short"}).json()["id"]
+    assert_validation_error(client.patch(f"/v1/farms/{farm_id}", json={"name": "x" * 201}))
+    assert client.get(f"/v1/farms/{farm_id}").json()["name"] == "Short"
+
+
+def test_plot_name_limit_and_incompressible_names(client: TestClient) -> None:
+    incompressible = "".join(hashlib.md5(str(i).encode()).hexdigest() for i in range(130))
+    assert len(incompressible) == 4160
+
+    def create(name: str):
+        return client.post("/v1/plots", json={**VALID_BODY, "name": name})
+
+    def read_name(plot_id: str) -> str:
+        return client.get(f"/v1/plots/{plot_id}").json()["name"]
+
+    exact = "a" * 200
+    created = create(exact)
+    assert created.status_code == 201
+    assert created.json()["name"] == exact
+    assert read_name(created.json()["id"]) == exact
+
+    assert_validation_error(create("a" * 201))
+    assert_validation_error(create(incompressible))
+    assert_validation_error(create(" " + "b" * 201 + " "))
+
+    seeds = "🌱" * 200
+    created_seeds = create(seeds)
+    assert created_seeds.status_code == 201
+    assert read_name(created_seeds.json()["id"]) == seeds
+
+    padded = create("  " + "c" * 200 + "  ")
+    assert padded.status_code == 201
+    assert padded.json()["name"] == "c" * 200
+    assert read_name(padded.json()["id"]) == "c" * 200
+
+    plot_id = created.json()["id"]
+    assert_validation_error(client.patch(f"/v1/plots/{plot_id}", json={"name": "a" * 201}))
+    assert_validation_error(client.patch(f"/v1/plots/{plot_id}", json={"name": incompressible}))
+    assert read_name(plot_id) == exact
+    patched = client.patch(f"/v1/plots/{plot_id}", json={"name": "d" * 200})
+    assert patched.status_code == 200
+    assert read_name(plot_id) == "d" * 200
 
 
 def test_sql_metacharacters_are_plain_text(client: TestClient) -> None:
