@@ -1,6 +1,6 @@
 -- PostgreSQL schema for registry-service: five tables and the three catalogues.
 -- No demo farms or plots; see sql/demo_data.sql for local use.
--- Run: psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f sql/postgres_schema.sql
+-- Run: psql "${DATABASE_URL:?DATABASE_URL is not set}" --single-transaction -v ON_ERROR_STOP=1 -f sql/postgres_schema.sql
 
 CREATE TABLE farms (
   id   TEXT COLLATE "C" PRIMARY KEY,

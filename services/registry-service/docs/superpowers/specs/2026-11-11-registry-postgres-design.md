@@ -8,7 +8,7 @@ Status: draft for review. Branch: `p1-postgres`. Date: 2026-11-11.
 
 Success means all of these:
 
-1. Every existing test passes on SQLite with no behavior change, except the one deliberate change in section 8 (NUL in text).
+1. Every existing test passes on SQLite with no behavior change, except the two deliberate changes in section 8 (NUL in text, name length).
 2. With a real PostgreSQL, the same tests pass there too (section 10).
 3. The default test run uses SQLite only, whatever `DATABASE_URL` says.
 4. `DATABASE_URL` is chosen by the scheme, and secrets never appear in logs or error messages.
@@ -37,9 +37,9 @@ New `config.py`.
   - Unset or empty means the local `registry.db`.
   - Any other scheme is an error.
 - **Secrets.** The target object redacts the password in its `repr`. Nothing formats the full URL. Error messages and logs never include it.
-- **When it is parsed.** At app startup, in a lifespan handler. Never at import and never on the first request. A bad scheme fails startup with a clear message that does not include the URL. A PostgreSQL URL that libpq cannot parse (checked with psycopg's own parser) also fails startup, with a fixed message that contains no part of the URL and no chained exception text.
+- **When it is parsed.** At app startup, in a lifespan handler. Never at import and never on the first request. A bad scheme fails startup with a clear message that does not include the URL. For a PostgreSQL URL, libpq's own parse (`psycopg.conninfo.conninfo_to_dict`) is the authority. At startup it is cross-checked against a plain URL split. A fixed message (`DATABASE_URL is not a valid PostgreSQL URL`) that contains no part of the URL and no chained exception text fails startup when libpq cannot parse the URL, when the two disagree (for example an unencoded `@` in the password), when there is an unencoded `@` after the authority (path, query or fragment), or when a libpq port is not plain digits within 1..65535. Special characters in a user name or password must be percent-encoded (`@ / : ? # %`). The redacted display and the same-database identity come from libpq's parse.
 - **Where it is stored.** `app.state.db_target`, set in the lifespan handler. There is no module-level cache, so each `with TestClient(app)` parses again.
-- **Same-database comparison** (used by the test safety check, section 10): compare host, port and database name, after normalizing `postgres://` to `postgresql://`, treating `localhost`, `127.0.0.1` and `::1` as one host, and treating a missing port as 5432. Different host names that resolve to the same server are not detected; this is a known limit.
+- **Same-database comparison** (used by the test safety check, section 10): compare host (`localhost`, `127.0.0.1` and `::1` count as one host), port (default 5432) and database name (defaults to the user name), all from libpq's parse. An identity whose database name is unknown matches any database on the same host and port. A `TEST_DATABASE_URL` that is not a `postgresql://` or `postgres://` URL with a host, or that holds `service`, `hostaddr`, a host list, or a port that is not plain digits within 1..65535, is refused, because the comparison cannot read it. Different names for the same server (`localhost.`, `127.1`, `0.0.0.0`, the machine name, socket versus TCP) are not detected; this is a known limit.
 
 ## 4. The adapter (`db.py`)
 
@@ -75,7 +75,7 @@ Notes on the table:
 - **Connection lost after connecting.** Verified: after a server stop, a crash, a terminated backend or a cut socket, `conn.broken` is true, and it stays false for ordinary query errors (`42P01`, `23505`). The graceful stop gives `57P01`; the crash and the cut socket give no SQLSTATE.
 - **Rollback before `IntegrityViolation`.** `plots.py` (create and update) runs `check_references` again on the same connection after an integrity error. On PostgreSQL an aborted transaction fails every later query, which would turn a 409 or 404 into a 500. The rollback is harmless on SQLite. If the rollback itself fails because the connection is gone, the adapter raises `DatabaseUnavailable`.
 - **Foreign-key and unique violations.** Deleting a farm that still has plots (`23503`) and a duplicate plot name (`23505`) both reach the existing 409 paths.
-- **Logging.** The adapter logs only on the 503 path: exception class, SQLSTATE when there is one, and the exception text only for `psycopg.OperationalError` and SQLite errors. Other classes log the class name and a fixed text. It never logs `e.pgconn`, the URL or the parameters. (`e.pgconn` contains the password in clear text.) Integrity violations and NUL guards write no log line.
+- **Logging.** The adapter logs only on the 503 path: exception class, SQLSTATE when there is one, and the exception text only for `psycopg.OperationalError` and SQLite errors. Other classes log the class name and a fixed text. It never logs `e.pgconn`, the URL or the parameters. (`e.pgconn` contains the password in clear text.) The startup check in section 3 keeps URLs that libpq and a plain URL split read differently out of this path. Integrity violations and NUL guards write no log line.
 - **Handler.** `errors.py` has one handler for `DatabaseUnavailable` that returns 503 with `Retry-After: 5`. The `sqlite3` import leaves `errors.py` and `main.py`.
 
 ## 6. Routers
@@ -98,6 +98,10 @@ PostgreSQL rejects `\u0000` in text; SQLite accepts it. Verified: psycopg raises
 - **Route-walking test.** It walks `app.openapi()["paths"]` (not `app.routes`, which does not list included routers in this FastAPI version) and asserts it found exactly 10 sites, so it can never pass on an empty list. A spy on the adapter also asserts that no query received a NUL parameter. Baseline: run on SQLite before any code change, all 10 sites behaved as above.
 - **Lone surrogates.** Verified: psycopg raises the built-in `UnicodeEncodeError`, which the existing handler turns into 422. The existing four surrogate cases are expected to pass unchanged on PostgreSQL.
 
+### Name length (deliberate change)
+
+Farm and plot names are limited to 200 characters, counted after the surrounding spaces are stripped, on both backends. A longer name gives 422 `VALIDATION`. PostgreSQL limits an index row to about 2704 bytes and the plot name is part of `UNIQUE (farm_id, name)`, so an incompressible name of a few thousand characters fails there with SQLSTATE 54000 (a 500) while SQLite accepts it. This changes SQLite behavior: a longer name used to return 201. It is recorded in entry 34.
+
 ## 9. Files
 
 New: `config.py`, the PostgreSQL schema script, the demo data file, `.env.example` (placeholders only), and the new tests.
@@ -106,8 +110,11 @@ Changed: `db.py`, `errors.py`, `main.py`, `farms.py`, `plots.py`, `catalogues.py
 README content:
 
 - How the database is chosen: `DATABASE_URL` forms, the unset default, and that `.env` is loaded from the service directory.
-- How to run the PostgreSQL schema script: `psql --single-transaction -v ON_ERROR_STOP=1`, production with the catalogues only, and the demo data file for local use.
+- How to run the PostgreSQL schema script: `psql "${DATABASE_URL:?DATABASE_URL is not set}" --single-transaction -v ON_ERROR_STOP=1` (an unset variable fails loudly; `.env` is not read by `psql`), production with the catalogues only, and the demo data file for local use.
 - How to run the PostgreSQL tests: set `TEST_DATABASE_URL`; without it they are skipped; they refuse to run against the same database as `DATABASE_URL`.
+- PostgreSQL prerequisites: version 12 or later, a UTF8 database, a service role that owns the tables or is granted access, and PgBouncer and `options`.
+- URL syntax: percent-encode special characters in a user name or password; an unencoded `@` after the authority is rejected at startup.
+- Farm and plot names are limited to 200 characters.
 - A warning: never put a real `DATABASE_URL` in `.env.example`. It is committed and must hold placeholders only. The real `.env` stays out of git.
 
 ## 10. Testing
@@ -121,7 +128,7 @@ README content:
 
 ### Same-database safety check
 
-The autouse fixture overwrites `DATABASE_URL`, so comparing `TEST_DATABASE_URL` with `os.environ["DATABASE_URL"]` during a test would always compare against SQLite. Instead, `conftest.py` captures the developer's real `DATABASE_URL` once, at session start (in `pytest_configure`, after loading the environment and `.env` the same way the service does, and before any fixture runs), and stores it. The PostgreSQL fixtures compare `TEST_DATABASE_URL` against that stored value, using the comparison from section 3, and refuse to run on a match. If the captured value is unset or a SQLite URL, there is nothing to conflict with. A `TEST_DATABASE_URL` that is not a `postgresql://` or `postgres://` URL with a host is refused too, because the comparison cannot read it.
+The autouse fixture overwrites `DATABASE_URL`, so comparing `TEST_DATABASE_URL` with `os.environ["DATABASE_URL"]` during a test would always compare against SQLite. Instead, `conftest.py` captures the developer's real `DATABASE_URL` once, at session start (in `pytest_configure`, after loading the environment and `.env` the same way the service does, and before any fixture runs), and stores it. The PostgreSQL fixtures compare `TEST_DATABASE_URL` against that stored value, using the comparison from section 3, and refuse to run on a match. If the captured value is unset or a SQLite URL, there is nothing to conflict with. The comparison uses libpq's parse; an unknown database name matches any database on the same host and port. A `TEST_DATABASE_URL` that is not a `postgresql://` or `postgres://` URL with a host, or that holds `service`, `hostaddr`, a host list or a port that is not plain digits within 1..65535, is refused too, because the comparison cannot read it.
 
 ### Tests that run by default (no PostgreSQL needed)
 
@@ -174,7 +181,7 @@ Only the lines named here change. The other lines of each entry stay as written.
 ### 17. DATABASE_URL and the .env file
 
 - **Suggested:** the agent proposed that the URL scheme picks the backend (`postgresql://` for PostgreSQL, `sqlite:///path` for SQLite), and that an unset variable means the local `registry.db`.
-- **Decided:** accepted, with four additions: a relative SQLite path resolves against the service directory, an empty value counts as unset, both `postgresql://` and `postgres://` are accepted, and the password is never shown. `.env` is loaded with python-dotenv from the service directory, and a real environment variable wins over the file. The URL is parsed at app startup and stored on `app.state`. A PostgreSQL URL that libpq cannot parse also fails startup, with a fixed message that contains no part of the URL. A committed `.env.example` holds placeholders only.
+- **Decided:** accepted, with four additions: a relative SQLite path resolves against the service directory, an empty value counts as unset, both `postgresql://` and `postgres://` are accepted, and the password is never shown. `.env` is loaded with python-dotenv from the service directory, and a real environment variable wins over the file. The URL is parsed at app startup and stored on `app.state`. libpq's own parse is the authority for a PostgreSQL URL: at startup it is cross-checked against a plain URL split, and a URL that libpq cannot parse, that the two read differently (for example an unencoded `@` in the password), that has an unencoded `@` after the authority, or whose port is not a number from 1 to 65535 fails startup with a fixed message that contains no part of the URL. A committed `.env.example` holds placeholders only.
 - **Why:** the task requires `DATABASE_URL` explicitly. An unset variable means SQLite, so local runs and the default tests need no configuration. Parsing at startup makes a bad URL visible at deploy, and `app.state` (not a module-level cache) keeps one test from inheriting another test's database.
 
 ### 18. A thin adapter over raw SQL, not an ORM
@@ -235,7 +242,7 @@ Only the lines named here change. The other lines of each entry stay as written.
 
 - **Suggested:** the agent noted that the 503 handler wrote no log line, so the real cause of a database outage would be invisible.
 - **Decided:** the adapter logs only when it raises `DatabaseUnavailable`: the exception class, the SQLite error name or PostgreSQL SQLSTATE when there is one, and the exception text only for `psycopg.OperationalError` and SQLite errors. Any other exception raised while building the connection settings or opening the connection is logged by class name and a fixed message only. It never logs `e.pgconn`, the URL or the parameters. Integrity violations and the NUL guards write no log line.
-- **Why:** the log is where whoever runs the service finds a misconfiguration (entry 26). `e.pgconn` contains the password in clear text, and libpq messages include host and user. A 409 for a duplicate name is a normal client answer and should not write a warning each time. A malformed percent escape in the password made psycopg's URL parser put the password into its error text, so the text is withheld for every class except those known to carry only host, port, user and the server's own message.
+- **Why:** the log is where whoever runs the service finds a misconfiguration (entry 26). `e.pgconn` contains the password in clear text, and libpq messages include host and user. A 409 for a duplicate name is a normal client answer and should not write a warning each time. A malformed percent escape in the password made psycopg's URL parser put the password into its error text, so the text is withheld for every class except those known to carry only host, port, user and the server's own message. The startup check (entry 17) keeps URLs that libpq and a plain URL split read differently out of the log path, because libpq's error text repeats whatever it took for the host, the port or the database name.
 
 ### 28. Roll back before raising IntegrityViolation
 
@@ -264,8 +271,8 @@ Only the lines named here change. The other lines of each entry stay as written.
 ### 32. PostgreSQL test isolation, and the same-database safety check
 
 - **Suggested:** the agent offered a fresh schema per test, truncating and reseeding the same tables, or a new database per test.
-- **Decided:** one schema per test, named with a fixed `test_` prefix. The fixture runs the schema script and the demo data inside it, puts `options=-csearch_path=<schema>` in the URL it gives the app, and drops only the schema it created, by exact name. The tests run only when `TEST_DATABASE_URL` is set, and refuse to run when it points at the same database as the developer's real `DATABASE_URL`. That value is captured once at session start, before any fixture changes it, and compared by host, port and database name. A `TEST_DATABASE_URL` that is not a `postgresql://` or `postgres://` URL with a host (a key=value string, a socket-style URL) is refused too, because the comparison cannot read it.
-- **Why:** a schema per test is isolated, can run in parallel, needs no extra privileges and exercises the schema script itself. The safety check keeps the tests away from a production database. Capturing the URL early matters, because the autouse fixture overwrites the variable, and a later comparison would always be against SQLite.
+- **Decided:** one schema per test, named with a fixed `test_` prefix. The fixture runs the schema script and the demo data inside it, puts `options=-csearch_path=<schema>` in the URL it gives the app, and drops only the schema it created, by exact name. The tests run only when `TEST_DATABASE_URL` is set, and refuse to run when it points at the same database as the developer's real `DATABASE_URL`, captured once at session start before any fixture changes it. The comparison uses libpq's parse: host (`localhost`, `127.0.0.1` and `::1` count as one host), port, and database name, which defaults to the user name; an unknown database name matches any database on the same host and port. A `TEST_DATABASE_URL` that is not a `postgresql://` or `postgres://` URL with a host, or that holds `service`, `hostaddr`, a host list or a port that is not plain digits from 1 to 65535, is refused too, because the comparison cannot read it. Different names for the same server (for example `localhost.` or `127.1`) are not detected.
+- **Why:** a schema per test is isolated, can run in parallel, needs only the right to create schemas and exercises the schema script itself. The safety check keeps the tests away from a production database. Capturing the URL early matters, because the autouse fixture overwrites the variable, and a later comparison would always be against SQLite.
 
 ### 33. The parallel tests run on both backends
 
@@ -273,9 +280,15 @@ Only the lines named here change. The other lines of each entry stay as written.
 - **Decided:** all four tests run on both backends, with the assertions unchanged. A 503 or 500 there is a finding to investigate, not a reason to widen the allowed set.
 - **Why:** real concurrency and row locks are where PostgreSQL differs most from SQLite, and the farm-delete race exercises the rollback-then-`check_references` path (entry 28).
 
+### 34. Farm and plot names are limited to 200 characters
+
+- **Suggested:** the final review found that PostgreSQL limits an index row to about 2704 bytes and the plot name is part of `UNIQUE (farm_id, name)`, so an incompressible name of a few thousand characters fails with SQLSTATE 54000 (a 500) while SQLite accepts it. The options were a maximum length on both backends or accepting and recording the difference.
+- **Decided:** farm and plot names are limited to 200 characters, counted after the surrounding spaces are stripped, on both backends. A longer name returns 422 `VALIDATION`. This changes SQLite behavior: a longer name used to return 201.
+- **Why:** identical behavior on both backends needs one rule. 200 characters stay far below the index limit even for four-byte characters (800 bytes plus the farm id) and are enough for a farm or plot name. Checked on PostgreSQL 17: a 4160-character incompressible value in the unique index failed, a 1500-character one did not.
+
 ## 12. Non-goals and deferred
 
 - Native PostgreSQL types: a possible later task.
 - A connection pool: add behind `get_db` if `scripts/measure_p95.py` shows a real problem.
-- Detecting different host names that resolve to the same server in the safety check.
+- Detecting different names for the same server (`localhost.`, `127.1`, the machine name, socket versus TCP) in the safety check.
 - A `57P03` (server starting up) reproduction: not tried. At connect time it is covered by the any-connect-failure rule; after connecting it is in the SQLSTATE list.
