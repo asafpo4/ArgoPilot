@@ -55,6 +55,27 @@ def test_check_refuses_test_urls_it_cannot_compare() -> None:
     check_comparable_test_url("postgres://h/db")
 
 
+def test_check_refuses_host_lists_given_in_the_query() -> None:
+    for bad in (
+        "postgresql://u@localhost/registry?host=localhost,other.invalid",
+        "postgresql://u@localhost/registry?host=,localhost",
+        "postgresql://u@other.invalid/registry?host=localhost,other.invalid",
+    ):
+        with pytest.raises(pytest.fail.Exception, match="^refusing to run") as info:
+            check_comparable_test_url(bad)
+        assert bad not in str(info.value)
+
+
+def test_same_database_is_conservative_for_host_lists() -> None:
+    from config import same_database
+
+    dev = "postgresql://u@localhost/registry"
+    assert same_database("postgresql://u@localhost/registry?host=localhost,other.invalid", dev)
+    assert same_database(dev, "postgresql://u@other.invalid/registry?host=other.invalid,localhost")
+    assert not same_database("postgresql://u@a/registry?host=a,b", dev)
+    assert not same_database("postgresql://u@localhost/x?host=localhost,b", dev.replace("registry", "y"))
+
+
 def test_check_refuses_test_urls_with_parts_the_comparison_cannot_read() -> None:
     for bad in (
         "postgresql://u@h/db?service=x",

@@ -32,6 +32,8 @@ class PostgresTarget:
         """Built from libpq's parse only: never the query string, never the URL text."""
         try:
             params = conninfo_to_dict(self.url)
+            if not _libpq_agrees_with_urlsplit(self.url):
+                return "postgresql://***"  # urlsplit and libpq disagree: show nothing
         except Exception:
             return "postgresql://***"
         user = params.get("user")
@@ -98,7 +100,7 @@ def _libpq_agrees_with_urlsplit(url: str) -> bool:
     if port is not None and not _port_ok(port, host):
         return False
     parts = urlsplit(url)
-    if "@" in parts.path:
+    if "@" in parts.path or "@" in parts.query or "@" in parts.fragment:
         return False
     for key, raw in (("user", parts.username), ("password", parts.password)):
         if raw and params.get(key) != unquote(raw):
@@ -168,8 +170,11 @@ def parse_database_url(
     )
 
 
-def _identity(url: str | None) -> tuple[str, str, str | None] | None:
-    """(host, port, database name); the name is None when unknown."""
+def _identity(url: str | None) -> tuple[frozenset[tuple[str, str]], str | None] | None:
+    """({(host, port), ...}, database name); the name is None when unknown.
+
+    A host list (netloc or ?host=) gives several pairs.
+    """
     if url is None:
         return None
     try:
@@ -180,13 +185,18 @@ def _identity(url: str | None) -> tuple[str, str, str | None] | None:
         params = conninfo_to_dict("postgresql" + url[len(scheme):])
     except Exception:
         return None
-    host = (params.get("host") or "").lower()
-    if host in _LOCAL_HOSTS:
-        host = "localhost"
-    port = params.get("port") or "5432"
-    if port.isascii() and port.isdigit():
-        port = str(int(port))
-    return host, port, params.get("dbname") or params.get("user") or None
+    hosts = (params.get("host") or "").lower().split(",")
+    ports = (params.get("port") or "").split(",")
+    pairs = set()
+    for i, host in enumerate(hosts):
+        port = ports[i] if len(ports) == len(hosts) else ports[0]
+        port = port or "5432"
+        if port.isascii() and port.isdigit():
+            port = str(int(port))
+        if host in _LOCAL_HOSTS:
+            host = "localhost"
+        pairs.add((host, port))
+    return frozenset(pairs), params.get("dbname") or params.get("user") or None
 
 
 def same_database(url_a: str | None, url_b: str | None) -> bool:
@@ -195,7 +205,7 @@ def same_database(url_a: str | None, url_b: str | None) -> bool:
         return False
     # An unknown database name may be any name, so it matches any name (a wrong "same"
     # only makes the tests refuse to run; a wrong "different" could hit the real database).
-    return a[:2] == b[:2] and (a[2] is None or b[2] is None or a[2] == b[2])
+    return bool(a[0] & b[0]) and (a[1] is None or b[1] is None or a[1] == b[1])
 
 
 load_environment()

@@ -108,3 +108,49 @@ def test_misread_path_urls_fail_startup_without_leaking(monkeypatch, url, fragme
     assert excinfo.value.__cause__ is None
     for fragment in fragments:
         assert fragment not in only
+
+
+AFTER_AUTHORITY_URLS = [
+    ("postgresql://svcuser.invalid:12/c?application_name=Secret@127.0.0.1:1/db", ["Secret", "svcuser", "12", "127.0.0.1"]),
+    ("postgresql://svc.invalid/er:hunter2?application_name=x@127.0.0.1:1/db", ["hunter2", "svc.invalid", "127.0.0.1"]),
+    ("postgresql://svcuser.invalid:12/cSEC?options=Secret@127.0.0.1:1/db", ["SEC", "Secret", "svcuser", "127.0.0.1"]),
+    ("postgresql://svcuser.invalid:/cSEC?application_name=Secret@127.0.0.1:1/db", ["SEC", "Secret", "svcuser", "127.0.0.1"]),
+    ("postgresql://svcuser.invalid:12/?application_name=Secret@127.0.0.1:1/db", ["Secret", "svcuser", "127.0.0.1"]),
+    ("postgresql://svcuser.invalid:12/c?sslmode=x@127.0.0.1:1/db", ["svcuser", "127.0.0.1"]),
+    ("postgresql://127.0.0.1:1/c?sslmode=Secret@x/db", ["Secret"]),
+    ("postgresql://u:pw@h/db#frag@ment", ["frag", "ment"]),
+]
+
+
+@pytest.mark.parametrize("url, fragments", AFTER_AUTHORITY_URLS)
+def test_at_after_the_authority_fails_startup_without_leaking(monkeypatch, url, fragments):
+    monkeypatch.setenv("DATABASE_URL", url)
+    with pytest.raises(ConfigError) as excinfo:
+        with TestClient(app):
+            pass
+    only = "".join(traceback.format_exception_only(excinfo.value))
+    assert excinfo.value.__cause__ is None
+    for fragment in fragments:
+        assert fragment not in only
+
+
+@pytest.mark.parametrize("url, fragments", AFTER_AUTHORITY_URLS[:7])
+def test_target_built_from_a_misread_url_prints_no_secret(url, fragments):
+    t = config.PostgresTarget(url)
+    for text in (repr(t), str(t)):
+        for fragment in fragments:
+            if fragment == "12":
+                continue
+            assert fragment not in text
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://u:pw@h/my%40db",
+        "postgresql://u:pw@h/db?application_name=a%40b",
+        "postgresql://u:pw@h/db?sslmode=require",
+    ],
+)
+def test_encoded_at_and_plain_queries_are_still_accepted(url):
+    assert isinstance(config.parse_database_url(url), config.PostgresTarget)

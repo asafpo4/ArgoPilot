@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import pytest
+from psycopg.conninfo import conninfo_to_dict
 
 from config import same_database
 
@@ -67,7 +68,10 @@ def check_comparable_test_url(test_url: str) -> None:
             hostpart = parts.netloc.rpartition("@")[2]
             # The comparison cannot read these.
             ok = not (keys & {"service", "hostaddr"}) and "," not in hostpart
-    except ValueError:
+            if ok:
+                # libpq's own host value, so a list given as ?host=a,b is seen too
+                ok = "," not in (conninfo_to_dict("postgresql" + test_url.strip()[len(parts.scheme):]).get("host") or "")
+    except Exception:
         ok = False
     if not ok:
         pytest.fail(
