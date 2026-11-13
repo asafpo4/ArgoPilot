@@ -27,7 +27,9 @@ def pytest_configure(config: pytest.Config) -> None:
 @pytest.fixture(autouse=True)
 def isolate_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
     # A real environment variable beats .env, so startup never reads the developer's .env.
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(DB_PATH))
+    # The path does not exist, so a test that forgets the get_db override cannot touch registry.db.
+    missing = DB_PATH.parent / "does-not-exist" / "registry.db"
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + str(missing))
 
 
 def use_database(path: Path) -> None:
