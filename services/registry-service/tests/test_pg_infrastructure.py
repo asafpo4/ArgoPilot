@@ -148,3 +148,28 @@ def compare_tables(lite: sqlite3.Connection, pg_base_url: str, pg_schema: str) -
                 tuple(r) for r in pg.execute(f"SELECT {', '.join(columns)} FROM {table}").fetchall()
             )
             assert pg_rows == lite_rows, table
+
+
+def test_check_refuses_ports_libpq_normalizes_but_the_identity_cannot_read() -> None:
+    for bad in (
+        "postgresql://u@localhost/registry?port=%205432",
+        "postgresql://u@localhost/registry?port=5432%20",
+        "postgresql://u@localhost/registry?port=5432%09",
+        "postgresql://u@localhost/registry?port=+5432",
+        "postgresql://u@localhost:+5432/registry",
+        "postgresql://u@localhost/registry?port=0",
+        "postgresql://u@localhost/registry?port=65536",
+        "postgresql://u@localhost/registry?port=1e3",
+        "postgresql://u@localhost/registry?port=%D9%A5",
+        "postgresql://u@localhost/registry?port=5432,5433",
+        "postgresql://u@localhost/registry?port=",
+    ):
+        with pytest.raises(pytest.fail.Exception, match="^refusing to run") as info:
+            check_comparable_test_url(bad)
+        assert bad not in str(info.value)
+    for good in (
+        "postgresql://u@localhost/registry?port=05432",
+        "postgresql://u@localhost/registry?port=65535",
+        "postgresql://u@localhost:5432/registry",
+    ):
+        check_comparable_test_url(good)

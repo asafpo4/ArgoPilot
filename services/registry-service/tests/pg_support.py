@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import pytest
 from psycopg.conninfo import conninfo_to_dict
 
-from config import same_database
+from config import same_database, valid_port
 
 SCHEMA_PREFIX = "test_"
 
@@ -70,7 +70,11 @@ def check_comparable_test_url(test_url: str) -> None:
             ok = not (keys & {"service", "hostaddr"}) and "," not in hostpart
             if ok:
                 # libpq's own host value, so a list given as ?host=a,b is seen too
-                ok = "," not in (conninfo_to_dict("postgresql" + test_url.strip()[len(parts.scheme):]).get("host") or "")
+                libpq = conninfo_to_dict("postgresql" + test_url.strip()[len(parts.scheme):])
+                ok = "," not in (libpq.get("host") or "")
+                port = libpq.get("port")
+                # libpq trims and accepts signs; the identity reads plain digits only
+                ok = ok and (port is None or valid_port(port))
     except Exception:
         ok = False
     if not ok:

@@ -66,6 +66,11 @@ def load_environment(env_file: Path | None = None) -> None:
     load_dotenv(env_file if env_file is not None else SERVICE_DIR / ".env", override=False)
 
 
+def valid_port(value: str) -> bool:
+    """Plain ASCII digits within 1..65535 (leading zeros allowed)."""
+    return value.isascii() and value.isdigit() and 1 <= int(value) <= 65535
+
+
 def _norm_port(value: str) -> str:
     return str(int(value)) if value.isascii() and value.isdigit() else value
 
@@ -127,7 +132,7 @@ def _port_ok(port: str, host: str) -> bool:
     if len(segments) != len(host.split(",")):
         return False
     multi = len(segments) > 1
-    return all(s.isascii() and (s.isdigit() or (multi and s == "")) for s in segments)
+    return all(valid_port(s) or (multi and s == "") for s in segments)
 
 
 def parse_database_url(
@@ -191,8 +196,9 @@ def _identity(url: str | None) -> tuple[frozenset[tuple[str, str]], str | None] 
     for i, host in enumerate(hosts):
         port = ports[i] if len(ports) == len(hosts) else ports[0]
         port = port or "5432"
-        if port.isascii() and port.isdigit():
-            port = str(int(port))
+        if not valid_port(port):
+            return None  # libpq may read it differently from plain digits
+        port = str(int(port))
         if host in _LOCAL_HOSTS:
             host = "localhost"
         pairs.add((host, port))

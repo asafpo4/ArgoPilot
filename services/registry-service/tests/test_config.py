@@ -264,3 +264,36 @@ def test_same_database_unknown_name_matches_any_name_on_same_host_and_port():
 def test_leading_zero_port_is_accepted():
     assert isinstance(parse_database_url("postgresql://u@h:05432/db"), PostgresTarget)
     assert same_database("postgresql://u@h:05432/db", "postgresql://u@h/db")
+
+
+@pytest.mark.parametrize(
+    "url, fragments",
+    [
+        ("postgresql://admin:123456", ["admin", "123456"]),
+        ("postgresql://admin.invalid:123456/appdb", ["admin", "123456", "appdb"]),
+        ("postgresql://u:pw@h:70000/db", ["70000", "pw"]),
+        ("postgresql://u:pw@h:0/db", ["pw"]),
+    ],
+)
+def test_ports_outside_1_to_65535_are_rejected_without_leaking(url, fragments):
+    _assert_fixed_error(url, fragments)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://u:pw@h:65535/db",
+        "postgresql://u:pw@h:05432/db",
+        "postgresql://u:pw@h1:1,h2:2/db",
+        "postgresql://u:pw@h1,h2:5/db",
+        "postgresql://u:pw@h1:,h2:5/db",
+    ],
+)
+def test_ports_in_range_are_accepted(url):
+    assert isinstance(parse_database_url(url), PostgresTarget)
+
+
+def test_same_database_cannot_read_a_port_that_is_not_plain_digits():
+    assert not same_database("postgresql://u@localhost:+5432/registry", "postgresql://u@localhost/registry")
+    assert not same_database("postgresql://u@localhost/registry?port=%205432", "postgresql://u@localhost/registry")
+    assert same_database("postgresql://u@localhost:05432/registry", "postgresql://u@localhost/registry")
