@@ -26,3 +26,6 @@ htmlcov/
 .vscode/*
 !.vscode/launch.json
 registry.db
+
+/.claude/
+/skills-lock.json
