@@ -1,3 +1,4 @@
+import os
 import traceback
 
 import pytest
@@ -38,8 +39,8 @@ def test_unknown_scheme_fails_startup_without_leaking_url(monkeypatch):
 def test_bad_dot_env_does_not_affect_default_run(client, tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("DATABASE_URL=nonsense://x\n")
-    # The autouse fixture's real variable beats this file, so it is never parsed.
-    assert isinstance(config.load_settings(env_file).target, config.SqliteTarget)
+    # The real variable beats this file, so the file is never parsed.
+    assert config.load_settings(env_file).target == config.parse_database_url(os.environ["DATABASE_URL"])
     with TestClient(app) as second:
         assert second.get("/v1/crops").status_code == 200
 
@@ -47,7 +48,7 @@ def test_bad_dot_env_does_not_affect_default_run(client, tmp_path):
 def test_postgres_dot_env_does_not_affect_default_run(client, tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text(f"DATABASE_URL={CLOSED_PORT_POSTGRES}\n")
-    assert isinstance(config.load_settings(env_file).target, config.SqliteTarget)
+    assert config.load_settings(env_file).target == config.parse_database_url(os.environ["DATABASE_URL"])
     with TestClient(app) as second:
         assert second.get("/v1/crops").status_code == 200
 
