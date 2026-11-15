@@ -79,7 +79,9 @@ def test_list_order_is_byte_order(client: TestClient, database: TestDatabase) ->
     conn = database.connect()
     try:
         for farm_id in new_ids:
-            conn.execute("INSERT INTO farms (id, name) VALUES (?, ?)", (farm_id, f"Farm {farm_id}"))
+            conn.execute(
+                "INSERT INTO farms (id, name) VALUES (:id, :name)", {"id": farm_id, "name": f"Farm {farm_id}"}
+            )
         conn.commit()
     finally:
         conn.close()

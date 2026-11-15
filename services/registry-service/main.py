@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from catalogues import router as catalogues_router
+import db
 from db import DatabaseUnavailable
 from errors import (
     database_unavailable_handler,
@@ -25,7 +26,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = config.load_settings()
     app.state.settings = settings
     app.state.db_target = settings.target
-    yield
+    app.state.engine = db.create_engine_for(settings.target)
+    try:
+        yield
+    finally:
+        app.state.engine.dispose()
 
 
 app = FastAPI(title="AgroPilot registry-service", version="0.1.0", lifespan=lifespan)

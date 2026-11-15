@@ -1,32 +1,48 @@
 import logging
+import traceback
 from typing import Any
 
 import psycopg
 import psycopg.errors
 import pytest
+import sqlalchemy as sa
 
 import db
+from config import ConfigError, PostgresTarget
 from db import DatabaseUnavailable, IntegrityViolation
 
 
-class FakeRaw:
+def wrap(orig: Exception, invalidated: bool = False) -> sa.exc.StatementError:
+    """What SQLAlchemy raises around a driver error. Its text holds the SQL and the parameters."""
+    return sa.exc.DBAPIError.instance(
+        "INSERT INTO t VALUES (:name)",
+        {"name": "SECRET-FARM-NAME"},
+        orig,
+        psycopg.Error,
+        connection_invalidated=invalidated,
+    )
+
+
+class FakeCursorResult:
+    rowcount = 1
+
+
+class FakeSAConnection:
     def __init__(
         self,
         execute_error: Exception | None = None,
         commit_error: Exception | None = None,
         rollback_error: Exception | None = None,
-        broken: bool = False,
     ) -> None:
-        self.broken = broken
         self.rollbacks = 0
         self._execute_error = execute_error
         self._commit_error = commit_error
         self._rollback_error = rollback_error
 
-    def execute(self, sql: str, params: Any = ()) -> Any:
+    def execute(self, statement: Any, params: Any = None) -> Any:
         if self._execute_error:
             raise self._execute_error
-        return object()
+        return FakeCursorResult()
 
     def commit(self) -> None:
         if self._commit_error:
@@ -43,23 +59,13 @@ def sqlstate_error(code: str) -> psycopg.Error:
     return cls()
 
 
-def test_translate_placeholders() -> None:
-    assert db.translate_placeholders("a = ? AND b = ?") == "a = %s AND b = %s"
-
-
-def test_conninfo_sets_timeouts_and_appends_to_existing_options() -> None:
-    info = psycopg.conninfo.conninfo_to_dict(
-        db.postgres_conninfo("postgresql://u:p@h/db?options=-csearch_path%3Dtest_ab")
-    )
-    assert info["options"] == "-csearch_path=test_ab -c lock_timeout=5000"
-    assert str(info["connect_timeout"]) == "5"
-    info = psycopg.conninfo.conninfo_to_dict(db.postgres_conninfo("postgresql://u:p@h/db"))
-    assert info["options"] == "-c lock_timeout=5000"
-    assert str(info["connect_timeout"]) == "5"
+def test_engine_uses_no_connection_pool() -> None:
+    engine: Any = db.create_engine_for(PostgresTarget("postgresql://u:p@h/db"))
+    assert type(engine.pool).__name__ == "NullPool"
 
 
 @pytest.mark.parametrize(
-    ("exc", "broken", "expected"),
+    ("exc", "invalidated", "expected"),
     [
         (sqlstate_error("08006"), False, "unavailable"),
         (sqlstate_error("08001"), False, "unavailable"),
@@ -75,16 +81,16 @@ def test_conninfo_sets_timeouts_and_appends_to_existing_options() -> None:
         (UnicodeEncodeError("utf-8", "x", 0, 1, "bad"), False, "other"),
     ],
 )
-def test_classification_table(exc: Exception, broken: bool, expected: str) -> None:
-    assert db.classify_postgres_error(exc, broken) == expected
+def test_classification_table(exc: Exception, invalidated: bool, expected: str) -> None:
+    assert db.classify_error(wrap(exc, invalidated), invalidated) == expected
 
 
 def test_integrity_error_rolls_back_then_raises() -> None:
-    raw = FakeRaw(execute_error=psycopg.errors.UniqueViolation())
-    conn = db.PostgresConnection(raw)
+    fake = FakeSAConnection(execute_error=wrap(psycopg.errors.UniqueViolation()))
+    conn = db.Connection(fake)
     with pytest.raises(IntegrityViolation):
-        conn.execute("INSERT INTO t VALUES (?)", (1,))
-    assert raw.rollbacks == 1
+        conn.execute("INSERT INTO t VALUES (:name)", {"name": "x"})
+    assert fake.rollbacks == 1
 
 
 def registry_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
@@ -92,31 +98,54 @@ def registry_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecor
 
 
 def test_failed_rollback_becomes_unavailable(caplog: pytest.LogCaptureFixture) -> None:
-    raw = FakeRaw(
-        execute_error=psycopg.errors.UniqueViolation(),
-        rollback_error=psycopg.OperationalError(),
-        broken=True,
+    fake = FakeSAConnection(
+        execute_error=wrap(psycopg.errors.UniqueViolation()),
+        rollback_error=wrap(psycopg.OperationalError(), invalidated=True),
     )
-    conn = db.PostgresConnection(raw)
+    conn = db.Connection(fake)
     with caplog.at_level(logging.WARNING, logger="registry.db"):
         with pytest.raises(DatabaseUnavailable):
-            conn.execute("INSERT INTO t VALUES (?)", (1,))
-    assert raw.rollbacks == 1
+            conn.execute("INSERT INTO t VALUES (:name)", {"name": "x"})
+    assert fake.rollbacks == 1
     assert len(registry_warnings(caplog)) == 1
 
 
 def test_commit_errors_are_translated(caplog: pytest.LogCaptureFixture) -> None:
-    conn = db.PostgresConnection(FakeRaw(commit_error=psycopg.errors.SerializationFailure()))
+    conn = db.Connection(FakeSAConnection(commit_error=wrap(psycopg.errors.SerializationFailure())))
     with caplog.at_level(logging.WARNING, logger="registry.db"):
         with pytest.raises(DatabaseUnavailable):
             conn.commit()
     assert len(registry_warnings(caplog)) == 1
 
 
-def test_unavailable_log_never_contains_password(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_never_contains_sql_parameters(caplog: pytest.LogCaptureFixture) -> None:
+    # SQLAlchemy's own message would hold the parameter; the log must hold the driver error only.
+    error = wrap(psycopg.errors.AdminShutdown("terminating connection due to administrator command"))
+    assert "SECRET-FARM-NAME" in str(error)
+    conn = db.Connection(FakeSAConnection(execute_error=error))
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(DatabaseUnavailable):
-            db.connect_postgres("postgresql://u:p%40ss%3Aw%2Frd@127.0.0.1:1/db")
+            conn.execute("INSERT INTO t VALUES (:name)", {"name": "SECRET-FARM-NAME"})
+    assert "SECRET-FARM-NAME" not in caplog.text
+    assert "terminating connection" in caplog.text
+    assert len(registry_warnings(caplog)) == 1
+
+
+def test_unavailable_error_carries_no_sqlalchemy_text() -> None:
+    error = wrap(psycopg.errors.AdminShutdown())
+    secret = str(error.params["name"])  # Kept out of this file's own source lines on purpose.
+    conn = db.Connection(FakeSAConnection(execute_error=error))
+    with pytest.raises(DatabaseUnavailable) as info:
+        conn.execute("INSERT INTO t VALUES (:name)", {"name": secret})
+    assert secret in str(error)
+    assert secret not in "".join(traceback.format_exception(info.value))
+
+
+def test_unavailable_log_never_contains_password(caplog: pytest.LogCaptureFixture) -> None:
+    target = PostgresTarget("postgresql://u:p%40ss%3Aw%2Frd@127.0.0.1:1/db")
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(DatabaseUnavailable):
+            db.open_connection(db.create_engine_for(target))
     for secret in ("p@ss", "p%40ss", "w/rd"):
         assert secret not in caplog.text
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -125,19 +154,24 @@ def test_unavailable_log_never_contains_password(caplog: pytest.LogCaptureFixtur
 
 def test_other_errors_pass_through_unchanged() -> None:
     error = psycopg.errors.UndefinedTable()
-    conn = db.PostgresConnection(FakeRaw(execute_error=error))
+    conn = db.Connection(FakeSAConnection(execute_error=wrap(error)))
     with pytest.raises(psycopg.errors.UndefinedTable) as info:
         conn.execute("SELECT 1")
     assert info.value is error
 
 
-def test_malformed_percent_escape_in_password_is_never_logged(caplog: pytest.LogCaptureFixture) -> None:
+def test_malformed_percent_escape_in_password_never_leaves_the_engine_factory(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Startup validation rejects this URL first; this is the second line of defence.
+    target = PostgresTarget("postgresql://u:secr%zzet@127.0.0.1:1/db")
     with caplog.at_level(logging.DEBUG):
-        with pytest.raises(DatabaseUnavailable):
-            db.connect_postgres("postgresql://u:secr%zzet@127.0.0.1:1/db")
+        with pytest.raises(ConfigError) as info:
+            db.create_engine_for(target)
     for secret in ("secr%zzet", "secr", "zzet"):
+        assert secret not in str(info.value)
+        assert secret not in "".join(traceback.format_exception(info.value))
         assert secret not in caplog.text
-    assert len(registry_warnings(caplog)) == 1
 
 
 def test_non_operational_connect_error_text_is_withheld(
@@ -149,7 +183,7 @@ def test_non_operational_connect_error_text_is_withheld(
     monkeypatch.setattr(psycopg, "connect", fail)
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(DatabaseUnavailable):
-            db.connect_postgres("postgresql://u:p@127.0.0.1:1/db")
+            db.open_connection(db.create_engine_for(PostgresTarget("postgresql://u:p@127.0.0.1:1/db")))
     assert "secretpw" not in caplog.text
     assert "ProgrammingError" in caplog.text
     assert len(registry_warnings(caplog)) == 1
@@ -167,7 +201,9 @@ def test_operational_connect_error_keeps_the_cause(
     monkeypatch.setattr(psycopg, "connect", fail)
     with caplog.at_level(logging.DEBUG):
         with pytest.raises(DatabaseUnavailable):
-            db.connect_postgres("postgresql://u:urlpw@127.0.0.1:5432/db")
+            db.open_connection(
+                db.create_engine_for(PostgresTarget("postgresql://u:urlpw@127.0.0.1:5432/db"))
+            )
     assert "password authentication failed" in caplog.text
     assert "urlpw" not in caplog.text
     assert len(registry_warnings(caplog)) == 1

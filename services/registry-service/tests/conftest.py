@@ -11,7 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import pg_support
-from db import DB_PATH, Connection, connect, connect_postgres, get_db
+from pg_support import postgres_connection, sqlite_connection
+from db import DB_PATH, Connection, get_db
 from main import app
 
 SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
@@ -32,7 +33,7 @@ def isolate_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def use_database(path: Path) -> None:
     def override_get_db() -> Iterator[Connection]:
-        conn = connect(path)
+        conn = sqlite_connection(path)
         try:
             yield conn
         finally:
@@ -86,9 +87,9 @@ def database(request: pytest.FixtureRequest, tmp_path: Path) -> TestDatabase:
     if request.param == "sqlite":
         test_db = tmp_path / "registry.db"
         shutil.copy(DB_PATH, test_db)
-        return TestDatabase("sqlite", lambda: connect(test_db))
+        return TestDatabase("sqlite", lambda: sqlite_connection(test_db))
     url = request.getfixturevalue("pg_app_url")
-    return TestDatabase("postgres", lambda: connect_postgres(url))
+    return TestDatabase("postgres", lambda: postgres_connection(url))
 
 
 @pytest.fixture
@@ -166,7 +167,7 @@ def locked_client(tmp_path: Path) -> Iterator[TestClient]:
     lock.execute("BEGIN IMMEDIATE")  # Holds the write lock until the test ends.
 
     def override_get_db() -> Iterator[Connection]:
-        conn = connect(test_db)
+        conn = sqlite_connection(test_db)
         # Wait 0.1 s for the lock instead of the default 5 s, so the test stays fast.
         conn.execute("PRAGMA busy_timeout = 100")
         try:

@@ -7,9 +7,18 @@ import pytest
 from psycopg.conninfo import conninfo_to_dict
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from config import SERVICE_DIR, same_database, valid_port
+from config import SERVICE_DIR, SqliteTarget, parse_database_url, same_database, valid_port
+from db import Connection, create_engine_for, open_connection
 
 SCHEMA_PREFIX = "test_"
+
+
+def sqlite_connection(path: Path) -> Connection:
+    return open_connection(create_engine_for(SqliteTarget(path)))
+
+
+def postgres_connection(url: str) -> Connection:
+    return open_connection(create_engine_for(parse_database_url(url)))
 
 # Set once by pytest_configure in conftest.py, before any fixture runs.
 DEVELOPER_DATABASE_URL: str | None = None

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 import db
 import pg_support
+from pg_support import postgres_connection
 from main import app
 
 FARM_ID = "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001"
@@ -75,7 +76,7 @@ def test_cut_socket_returns_503(pg_app_url, monkeypatch, override_cleanup):
     monkeypatch.setenv("DATABASE_URL", pg_app_url)
 
     def cut_socket_db() -> Iterator[db.Connection]:
-        conn = db.connect_postgres(pg_app_url)
+        conn = postgres_connection(pg_app_url)
         try:
             conn.execute("SELECT 1")
             socket.socket(fileno=os.dup(conn.raw.fileno())).shutdown(socket.SHUT_RDWR)
@@ -93,7 +94,7 @@ def test_terminated_backend_returns_503(pg_app_url, monkeypatch, override_cleanu
     monkeypatch.setenv("DATABASE_URL", pg_app_url)
 
     def terminated_db() -> Iterator[db.Connection]:
-        conn = db.connect_postgres(pg_app_url)
+        conn = postgres_connection(pg_app_url)
         try:
             conn.execute("SELECT 1")
             pid = conn.raw.info.backend_pid
