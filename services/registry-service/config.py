@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 
 from psycopg.conninfo import conninfo_to_dict
-from pydantic import ValidationError, field_validator
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_DIR = Path(__file__).resolve().parent
@@ -80,7 +80,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
-    DATABASE_URL: str | None = None
+    # repr=False: the URL can hold a password, and repr and str must never show it.
+    DATABASE_URL: str | None = Field(default=None, repr=False)
 
     @field_validator("DATABASE_URL")
     @classmethod
@@ -100,7 +101,8 @@ def load_settings(env_file: Path | None = None) -> Settings:
     try:
         return Settings(_env_file=path)
     except ValidationError:
-        raise ConfigError("Invalid settings") from None
+        pass  # Raised below, outside this handler, so the error keeps no __context__.
+    raise ConfigError("Invalid settings") from None
 
 
 def valid_port(value: str) -> bool:
@@ -178,10 +180,13 @@ def parse_database_url(
     if value is None or not value.strip():
         return SqliteTarget(DEFAULT_SQLITE_PATH)
     value = value.strip()
+    parts = None
     try:
         parts = urlsplit(value)
         scheme = parts.scheme.lower()
     except ValueError:
+        pass  # urlsplit's message can hold the netloc, so it is dropped. Raised below, outside this handler.
+    if parts is None:
         raise ConfigError("DATABASE_URL is not a valid URL") from None
     if scheme in ("postgres", "postgresql"):
         rest = value[len(parts.scheme):]
@@ -191,7 +196,8 @@ def parse_database_url(
         except Exception:
             consistent = False
         if not consistent:
-            # Fixed message, original suppressed: libpq's error text can hold the password.
+            # Fixed message: libpq's error text can hold the password. Raised here, outside the handler
+            # above, so the error has no __context__; `from None` also marks the context as suppressed.
             raise ConfigError("DATABASE_URL is not a valid PostgreSQL URL") from None
         return PostgresTarget(normalized)
     if scheme == "sqlite":

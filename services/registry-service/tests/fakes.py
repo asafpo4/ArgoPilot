@@ -1,9 +1,22 @@
-"""Fakes for the database error tests: SQLAlchemy errors and connections, with no server."""
+"""Fakes and helpers for the error tests: SQLAlchemy errors and connections, with no server."""
 
 from typing import Any
 
 import psycopg
 import sqlalchemy as sa
+
+def exception_chain(exc: BaseException) -> list[BaseException]:
+    """The error and everything reachable through __cause__ and __context__."""
+    seen: list[BaseException] = []
+    todo = [exc]
+    while todo:
+        current = todo.pop()
+        if any(current is known for known in seen):
+            continue
+        seen.append(current)
+        todo += [e for e in (current.__cause__, current.__context__) if e is not None]
+    return seen
+
 
 # A bound parameter value. SQLAlchemy's own error text holds it unless parameters are hidden.
 SECRET_PARAM = "SECRET-FARM-NAME"
@@ -32,6 +45,7 @@ class FakeSAConnection:
         rollback_error: Exception | None = None,
     ) -> None:
         self.rollbacks = 0
+        self.closes = 0
         self._execute_error = execute_error
         self._commit_error = commit_error
         self._rollback_error = rollback_error
@@ -49,6 +63,9 @@ class FakeSAConnection:
         self.rollbacks += 1
         if self._rollback_error:
             raise self._rollback_error
+
+    def close(self) -> None:
+        self.closes += 1
 
 
 class FailingMappings:

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from fakes import exception_chain
 from config import (
     DEFAULT_SQLITE_PATH,
     SERVICE_DIR,
@@ -335,3 +336,41 @@ def test_same_database_cannot_read_a_port_that_is_not_plain_digits():
     assert not same_database("postgresql://u@localhost:+5432/registry", "postgresql://u@localhost/registry")
     assert not same_database("postgresql://u@localhost/registry?port=%205432", "postgresql://u@localhost/registry")
     assert same_database("postgresql://u@localhost:05432/registry", "postgresql://u@localhost/registry")
+
+
+def test_settings_repr_and_str_never_show_the_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:PWMARKER9z@db.internal:5432/registry")
+    settings = load_settings(Path("/nonexistent/.env"))
+    assert settings.DATABASE_URL  # The value is there, so a leak in repr or str would show.
+    assert "Settings" in repr(settings)
+    for text in (repr(settings), str(settings)):
+        assert "PWMARKER9z" not in text
+        assert "db.internal" not in text
+
+
+# Each URL below reaches a different place that raises ConfigError.
+CONFIG_ERROR_URLS = [
+    "postgresql://u:PWMARKER9z\u2100@127.0.0.1:1/db",  # urlsplit rejects it (NFKC), ValueError
+    "postgresql://u:PWMARKER9z%zz@127.0.0.1:1/db",  # libpq cannot read it
+    "mysql://u:PWMARKER9z@h/db",  # unsupported scheme
+    "sqlite://u:PWMARKER9z@h/x.db",  # sqlite with a host part
+]
+
+
+@pytest.mark.parametrize("url", CONFIG_ERROR_URLS)
+def test_config_error_chain_has_no_context_and_no_secret(url):
+    with pytest.raises(ConfigError) as info:
+        parse_database_url(url)
+    assert exception_chain(info.value) == [info.value]
+    assert info.value.__context__ is None
+    assert "PWMARKER9z" not in str(info.value)
+    assert "PWMARKER9z" not in "".join(traceback.format_exception(info.value))
+
+
+@pytest.mark.parametrize("url", CONFIG_ERROR_URLS)
+def test_startup_settings_error_chain_has_no_context_and_no_secret(url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", url)
+    with pytest.raises(ConfigError) as info:
+        load_settings(Path("/nonexistent/.env"))
+    assert exception_chain(info.value) == [info.value]
+    assert "PWMARKER9z" not in "".join(traceback.format_exception(info.value))

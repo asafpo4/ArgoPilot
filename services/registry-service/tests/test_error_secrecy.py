@@ -16,7 +16,7 @@ import sqlalchemy as sa
 import db
 from config import ConfigError, PostgresTarget, SqliteTarget, parse_database_url
 from db import DB_PATH, DatabaseUnavailable, IntegrityViolation
-from fakes import SECRET_PARAM, FailingResult, FakeSAConnection, wrap
+from fakes import SECRET_PARAM, FailingResult, FakeSAConnection, exception_chain, wrap
 
 # One driver error for each way the layer translates an error.
 KINDS = {
@@ -24,19 +24,6 @@ KINDS = {
     "integrity": psycopg.errors.UniqueViolation,
     "other": psycopg.errors.UndefinedTable,
 }
-
-
-def exception_chain(exc: BaseException) -> list[BaseException]:
-    """The error and everything reachable through __cause__ and __context__."""
-    seen: list[BaseException] = []
-    todo = [exc]
-    while todo:
-        current = todo.pop()
-        if any(current is known for known in seen):
-            continue
-        seen.append(current)
-        todo += [e for e in (current.__cause__, current.__context__) if e is not None]
-    return seen
 
 
 def assert_chain_is_clean(exc: BaseException) -> None:
