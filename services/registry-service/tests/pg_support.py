@@ -1,5 +1,6 @@
 """Helpers for the PostgreSQL test fixtures."""
 
+from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import pytest
@@ -23,9 +24,10 @@ class TestEnv(BaseSettings):
     TEST_DATABASE_URL: str | None = None
 
 
-def capture_developer_database_url() -> str | None:
+def capture_developer_database_url(env_file: Path | None = None) -> str | None:
     # Reads the environment and .env, as the service does, before the autouse fixture overwrites it.
-    value = TestEnv().DATABASE_URL
+    path = env_file if env_file is not None else TestEnv.model_config["env_file"]
+    value = TestEnv(_env_file=path).DATABASE_URL
     return value if value else None
 
 
