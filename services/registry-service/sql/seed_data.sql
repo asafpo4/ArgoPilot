@@ -1,6 +1,21 @@
--- Demo farms and plots for local use and tests only; never run in production.
--- Run after the schema script:
---   psql "${DATABASE_URL:?DATABASE_URL is not set}" --single-transaction -v ON_ERROR_STOP=1 -f sql/demo_data.sql
+-- The 15 sample rows: 2 crops, 3 soils, 4 emitters, 2 farms, 4 plots.
+-- One source for both backends: seed_registry.sh (SQLite) and scripts/seed.py (PostgreSQL) load
+-- this file after they create the tables. Insert order follows the foreign keys.
+
+INSERT INTO crops (id, name) VALUES
+  ('tomato', 'Tomato'),
+  ('bell-pepper', 'Bell pepper');
+
+INSERT INTO soils (id, name, available_water_mm_per_m) VALUES
+  ('sand', 'Sand', 83),
+  ('loam', 'Loam', 175),
+  ('clay-loam', 'Clay loam', 200);
+
+INSERT INTO emitters (id, name, flow_lph) VALUES
+  ('dripnet-pc-0.6', 'DripNet PC', 0.6),
+  ('dripnet-pc-1.0', 'DripNet PC', 1.0),
+  ('dripnet-pc-1.6', 'DripNet PC', 1.6),
+  ('dripnet-pc-2.0', 'DripNet PC', 2.0);
 
 INSERT INTO farms (id, name) VALUES
   ('b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001', 'Demo cooperative'),

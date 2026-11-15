@@ -11,12 +11,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 import pg_support
+from config import parse_database_url
 from pg_support import postgres_connection, sqlite_connection
-from db import DB_PATH, Connection, get_db
+from seeding import seed_postgres
+from db import DB_PATH, Connection, create_engine_for, get_db
 from main import app
-
-SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
-
 
 def pytest_configure(config: pytest.Config) -> None:
     # Before any fixture runs: the autouse fixture below overwrites DATABASE_URL.
@@ -53,20 +52,28 @@ def pg_base_url() -> str:
 
 
 @pytest.fixture
-def pg_schema(pg_base_url: str) -> Iterator[str]:
+def empty_pg_schema(pg_base_url: str) -> Iterator[str]:
+    """A new, empty schema named test_<hex>; dropped by exact name afterwards."""
     name = pg_support.SCHEMA_PREFIX + uuid.uuid4().hex
-    options = f"-csearch_path={name}"
     with psycopg.connect(pg_base_url, autocommit=True) as admin:
         admin.execute(f'CREATE SCHEMA "{name}"')
         try:
-            with psycopg.connect(
-                pg_support.with_options(pg_base_url, options), autocommit=True
-            ) as scoped:
-                for script in ("postgres_schema.sql", "demo_data.sql"):
-                    scoped.execute((SQL_DIR / script).read_text())
             yield name
         finally:
             admin.execute(f'DROP SCHEMA "{name}" CASCADE')
+
+
+@pytest.fixture
+def pg_schema(pg_base_url: str, empty_pg_schema: str) -> str:
+    """A schema with the tables and the 15 seed rows, made by the same function as the command."""
+    engine = create_engine_for(
+        parse_database_url(pg_support.with_options(pg_base_url, f"-csearch_path={empty_pg_schema}"))
+    )
+    try:
+        seed_postgres(engine)
+    finally:
+        engine.dispose()
+    return empty_pg_schema
 
 
 @pytest.fixture

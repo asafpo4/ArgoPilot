@@ -7,8 +7,11 @@ from pathlib import Path
 
 import psycopg
 import pytest
+import sqlalchemy as sa
 
-from db import DB_PATH
+from config import parse_database_url
+from db import DB_PATH, create_engine_for
+from seeding import seed_postgres
 from pg_support import (
     TestEnv,
     capture_developer_database_url,
@@ -141,10 +144,9 @@ def schema_connection(base_url: str, schema: str) -> psycopg.Connection:
 
 
 def test_schema_script_fails_on_second_run(pg_base_url: str, pg_schema: str) -> None:
-    script = (SERVICE_DIR / "sql" / "postgres_schema.sql").read_text()
-    with schema_connection(pg_base_url, pg_schema) as conn:
-        with pytest.raises(psycopg.errors.DuplicateTable):
-            conn.execute(script)
+    engine = create_engine_for(parse_database_url(with_options(pg_base_url, f"-csearch_path={pg_schema}")))
+    with pytest.raises(sa.exc.ProgrammingError):
+        seed_postgres(engine)
 
 
 def test_pg_schema_contains_demo_data(pg_base_url: str, pg_schema: str) -> None:
