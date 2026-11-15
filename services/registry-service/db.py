@@ -84,7 +84,7 @@ def classify_error(
 class Result:
     """A cursor-like result. Rows are plain dicts. Errors raised while fetching are translated."""
 
-    def __init__(self, result: Any, translate: Callable[[Exception], NoReturn]) -> None:
+    def __init__(self, result: Any, translate: Callable[[Exception], BaseException]) -> None:
         self._result = result
         self._translate = translate
         # Read now: the cursor closes once the statement is done, and a commit follows.
@@ -98,15 +98,19 @@ class Result:
         try:
             row = self._result.mappings().fetchone()
         except Exception as exc:
-            self._translate(exc)
-        return None if row is None else dict(row)
+            error = self._translate(exc)
+        else:
+            return None if row is None else dict(row)
+        raise error  # Outside the handler, so the error has no __context__ (see Connection).
 
     def fetchall(self) -> list[dict[str, Any]]:
         try:
             rows = self._result.mappings().fetchall()
         except Exception as exc:
-            self._translate(exc)
-        return [dict(row) for row in rows]
+            error = self._translate(exc)
+        else:
+            return [dict(row) for row in rows]
+        raise error
 
 
 class Connection:
@@ -124,31 +128,40 @@ class Connection:
         _log_unavailable(driver_error(exc))
         return DatabaseUnavailable("Database unavailable")
 
-    def _translate(self, exc: Exception) -> NoReturn:
-        driver = driver_error(exc)
+    def _translated(self, exc: Exception) -> BaseException:
+        """The error to raise for `exc`. It is returned, never raised.
+
+        Callers raise it after their `except` block ends. Raising inside the block would store
+        SQLAlchemy's exception, whose text holds the SQL, in the new error's __context__, where a
+        tool that walks the chain could read it. `from None` only hides that from printouts.
+        """
         kind = classify_error(exc, bool(getattr(exc, "connection_invalidated", False)))
-        # `from None` everywhere: SQLAlchemy's wrapper text is not carried into any traceback.
         if kind == "unavailable":
-            raise self._unavailable(exc) from None
+            return self._unavailable(exc)
         if kind == "integrity":
             try:
                 self.rollback()
             except Exception as rollback_exc:
-                raise self._unavailable(rollback_exc) from None
-            raise IntegrityViolation(str(driver)) from None
-        raise driver from None
+                return self._unavailable(rollback_exc)
+            # Fixed text: PostgreSQL's own message can hold the offending key values.
+            return IntegrityViolation("Integrity constraint violated")
+        return driver_error(exc)
 
     def execute(self, sql: str, params: Mapping[str, Any] | None = None) -> Result:
         try:
-            return Result(self._conn.execute(sa.text(sql), params or {}), self._translate)
+            return Result(self._conn.execute(sa.text(sql), params or {}), self._translated)
         except Exception as exc:
-            self._translate(exc)
+            error = self._translated(exc)
+        raise error
 
     def commit(self) -> None:
         try:
             self._conn.commit()
         except Exception as exc:
-            self._translate(exc)
+            error = self._translated(exc)
+        else:
+            return
+        raise error
 
     def rollback(self) -> None:
         self._conn.rollback()
@@ -189,8 +202,10 @@ def create_engine_for(target: SqliteTarget | PostgresTarget) -> sa.Engine:
         connect_args = config.postgres_connect_args(target.url)
     except Exception:
         # Startup validation already rejects such a URL. The driver's own error text can hold the
-        # password, so it is dropped here too.
-        raise config.ConfigError("DATABASE_URL is not a valid PostgreSQL URL") from None
+        # password, so it is dropped, and the error is raised below, outside this handler.
+        connect_args = None
+    if connect_args is None:
+        raise config.ConfigError("DATABASE_URL is not a valid PostgreSQL URL")
     # The driver is named in the URL; host, user and password go in as libpq parameters.
     return sa.create_engine(
         "postgresql+psycopg://",
@@ -206,7 +221,7 @@ def open_connection(engine: sa.Engine) -> Connection:
         return Connection(engine.connect())
     except Exception as exc:
         _log_unavailable(driver_error(exc))
-        raise DatabaseUnavailable("Database unavailable") from None
+    raise DatabaseUnavailable("Database unavailable")  # Outside the handler: no __context__.
 
 
 def get_db(request: Request) -> Iterator[Connection]:

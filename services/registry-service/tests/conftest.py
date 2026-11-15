@@ -136,10 +136,9 @@ def broken_client() -> Iterator[TestClient]:
     app.dependency_overrides.clear()
 
 
-@pytest.fixture(params=["sqlite", "postgres"])
-def broken_schema_client(
+def break_crops_table(
     request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[TestClient]:
+) -> None:
     if request.param == "sqlite":
         test_db = tmp_path / "registry.db"
         shutil.copy(DB_PATH, test_db)
@@ -154,7 +153,25 @@ def broken_schema_client(
         with psycopg.connect(url, autocommit=True) as conn:
             conn.execute(f'DROP TABLE "{schema}".crops CASCADE')
         monkeypatch.setenv("DATABASE_URL", url)
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def broken_schema_client(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
+    break_crops_table(request, tmp_path, monkeypatch)
     with TestClient(app, raise_server_exceptions=False) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def raising_broken_schema_client(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
+    """Like broken_schema_client, but the test client re-raises the error the app did not handle."""
+    break_crops_table(request, tmp_path, monkeypatch)
+    with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

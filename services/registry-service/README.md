@@ -29,6 +29,8 @@ Farm and plot names are limited to 200 characters (after surrounding spaces are 
 
 Never put a real `DATABASE_URL` in `.env.example`. That file is committed and must hold placeholders only. The real `.env` stays out of git.
 
+Do not enable DEBUG logging for the `sqlalchemy.engine` logger in production, because it logs result rows.
+
 ### PostgreSQL schema
 
 PostgreSQL prerequisites:

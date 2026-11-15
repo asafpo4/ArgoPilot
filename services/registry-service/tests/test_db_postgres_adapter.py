@@ -10,48 +10,7 @@ import sqlalchemy as sa
 import db
 from config import ConfigError, PostgresTarget
 from db import DatabaseUnavailable, IntegrityViolation
-
-
-def wrap(orig: Exception, invalidated: bool = False) -> sa.exc.StatementError:
-    """What SQLAlchemy raises around a driver error. Its text holds the SQL and the parameters."""
-    return sa.exc.DBAPIError.instance(
-        "INSERT INTO t VALUES (:name)",
-        {"name": "SECRET-FARM-NAME"},
-        orig,
-        psycopg.Error,
-        connection_invalidated=invalidated,
-    )
-
-
-class FakeCursorResult:
-    rowcount = 1
-
-
-class FakeSAConnection:
-    def __init__(
-        self,
-        execute_error: Exception | None = None,
-        commit_error: Exception | None = None,
-        rollback_error: Exception | None = None,
-    ) -> None:
-        self.rollbacks = 0
-        self._execute_error = execute_error
-        self._commit_error = commit_error
-        self._rollback_error = rollback_error
-
-    def execute(self, statement: Any, params: Any = None) -> Any:
-        if self._execute_error:
-            raise self._execute_error
-        return FakeCursorResult()
-
-    def commit(self) -> None:
-        if self._commit_error:
-            raise self._commit_error
-
-    def rollback(self) -> None:
-        self.rollbacks += 1
-        if self._rollback_error:
-            raise self._rollback_error
+from fakes import FakeSAConnection, wrap
 
 
 def sqlstate_error(code: str) -> psycopg.Error:

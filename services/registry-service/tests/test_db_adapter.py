@@ -11,6 +11,7 @@ import sqlalchemy as sa
 import db
 from config import SqliteTarget
 from db import DB_PATH, DatabaseUnavailable, IntegrityViolation
+from fakes import FailingResult
 
 
 def open_sqlite(path: Path) -> db.Connection:
@@ -122,27 +123,6 @@ def test_lone_surrogate_reaches_the_caller_as_unicode_encode_error(conn: db.Conn
         conn.execute("INSERT INTO farms (id, name) VALUES (:id, :name)", {"id": "t2", "name": "\ud800"})
 
 
-class FailingMappings:
-    def __init__(self, error: Exception) -> None:
-        self.error = error
-
-    def fetchone(self) -> None:
-        raise self.error
-
-    def fetchall(self) -> None:
-        raise self.error
-
-
-class FailingResult:
-    rowcount = 3
-
-    def __init__(self, error: Exception) -> None:
-        self.error = error
-
-    def mappings(self) -> FailingMappings:
-        return FailingMappings(self.error)
-
-
 def sqlite_error(name: str) -> sqlite3.OperationalError:
     error = sqlite3.OperationalError("boom")
     error.sqlite_errorname = name
@@ -158,7 +138,7 @@ def wrapped(orig: Exception) -> sa.exc.DBAPIError:
 def test_lock_error_during_fetch_raises_unavailable_and_logs_once(
     conn: db.Connection, caplog: pytest.LogCaptureFixture, name: str, method: str
 ) -> None:
-    result = db.Result(FailingResult(wrapped(sqlite_error(name))), conn._translate)
+    result = db.Result(FailingResult(wrapped(sqlite_error(name))), conn._translated)
     with caplog.at_level(logging.WARNING, logger="registry.db"):
         with pytest.raises(DatabaseUnavailable):
             getattr(result, method)()
@@ -170,7 +150,7 @@ def test_lock_error_during_fetch_raises_unavailable_and_logs_once(
 @pytest.mark.parametrize("method", ["fetchone", "fetchall"])
 def test_other_error_during_fetch_passes_through(conn: db.Connection, method: str) -> None:
     error = sqlite_error("SQLITE_ERROR")
-    result = db.Result(FailingResult(wrapped(error)), conn._translate)
+    result = db.Result(FailingResult(wrapped(error)), conn._translated)
     with pytest.raises(sqlite3.OperationalError) as info:
         getattr(result, method)()
     assert info.value is error
