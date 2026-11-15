@@ -1,12 +1,12 @@
 """Helpers for the PostgreSQL test fixtures."""
 
-from collections.abc import Mapping
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import pytest
 from psycopg.conninfo import conninfo_to_dict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from config import same_database, valid_port
+from config import SERVICE_DIR, same_database, valid_port
 
 SCHEMA_PREFIX = "test_"
 
@@ -14,8 +14,18 @@ SCHEMA_PREFIX = "test_"
 DEVELOPER_DATABASE_URL: str | None = None
 
 
-def capture_developer_database_url(environ: Mapping[str, str]) -> str | None:
-    value = environ.get("DATABASE_URL")
+class TestEnv(BaseSettings):
+    """Raw test settings: no validation, so a bad URL cannot stop the test session."""
+
+    model_config = SettingsConfigDict(env_file=SERVICE_DIR / ".env", extra="ignore")
+
+    DATABASE_URL: str | None = None
+    TEST_DATABASE_URL: str | None = None
+
+
+def capture_developer_database_url() -> str | None:
+    # Reads the environment and .env, as the service does, before the autouse fixture overwrites it.
+    value = TestEnv().DATABASE_URL
     return value if value else None
 
 

@@ -154,12 +154,8 @@ def translate_placeholders(sql: str) -> str:
 
 
 def postgres_conninfo(url: str) -> str:
-    params = conninfo_to_dict(url)
-    options = params.get("options")
-    lock_option = "-c lock_timeout=5000"
-    params["options"] = f"{options} {lock_option}" if options else lock_option
-    params["connect_timeout"] = 5
-    return make_conninfo(**params)
+    # Temporary alias until Task 2 replaces the raw driver.
+    return make_conninfo(**{k: str(v) for k, v in config.postgres_connect_args(url).items()})
 
 
 def classify_postgres_error(

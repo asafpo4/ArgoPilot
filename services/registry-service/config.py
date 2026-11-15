@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 
-from dotenv import load_dotenv
 from psycopg.conninfo import conninfo_to_dict
+from pydantic import ValidationError, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVICE_DIR = Path(__file__).resolve().parent
 DEFAULT_SQLITE_PATH = SERVICE_DIR / "registry.db"
@@ -61,9 +62,45 @@ class PostgresTarget:
         return self._redacted()
 
 
-def load_environment(env_file: Path | None = None) -> None:
-    """Fill missing environment variables from a .env file; never override."""
-    load_dotenv(env_file if env_file is not None else SERVICE_DIR / ".env", override=False)
+def postgres_connect_args(url: str) -> dict[str, str | int]:
+    """libpq parameters for psycopg, with the connect and lock timeouts (entry 24).
+
+    lock_timeout is appended to any options already in the URL, never replacing them.
+    """
+    params: dict[str, str | int] = dict(conninfo_to_dict(url))
+    options = params.get("options")
+    lock_option = "-c lock_timeout=5000"
+    params["options"] = f"{options} {lock_option}" if options else lock_option
+    params["connect_timeout"] = 5
+    return params
+
+
+class Settings(BaseSettings):
+    """Settings read from the environment, then from .env. A real variable wins over .env."""
+
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
+
+    DATABASE_URL: str | None = None
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def database_url_is_valid(cls, value: str | None) -> str | None:
+        # ConfigError is not a ValueError, so pydantic lets it through unchanged.
+        parse_database_url(value)
+        return value
+
+    @property
+    def target(self) -> SqliteTarget | PostgresTarget:
+        return parse_database_url(self.DATABASE_URL)
+
+
+def load_settings(env_file: Path | None = None) -> Settings:
+    """Build Settings. Errors never show the input value."""
+    path = env_file if env_file is not None else SERVICE_DIR / ".env"
+    try:
+        return Settings(_env_file=path)
+    except ValidationError:
+        raise ConfigError("Invalid settings") from None
 
 
 def valid_port(value: str) -> bool:
@@ -212,6 +249,3 @@ def same_database(url_a: str | None, url_b: str | None) -> bool:
     # An unknown database name may be any name, so it matches any name (a wrong "same"
     # only makes the tests refuse to run; a wrong "different" could hit the real database).
     return bool(a[0] & b[0]) and (a[1] is None or b[1] is None or a[1] == b[1])
-
-
-load_environment()

@@ -1,4 +1,3 @@
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -23,7 +22,9 @@ from validation import InvalidTextError
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # A ConfigError here stops startup. Its message never contains the URL or password.
-    app.state.db_target = config.parse_database_url(os.environ.get("DATABASE_URL"))
+    settings = config.load_settings()
+    app.state.settings = settings
+    app.state.db_target = settings.target
     yield
 
 

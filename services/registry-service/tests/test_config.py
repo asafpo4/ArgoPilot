@@ -1,4 +1,3 @@
-import os
 import traceback
 from pathlib import Path
 
@@ -6,11 +5,13 @@ import pytest
 
 from config import (
     DEFAULT_SQLITE_PATH,
+    SERVICE_DIR,
     ConfigError,
     PostgresTarget,
     SqliteTarget,
-    load_environment,
+    load_settings,
     parse_database_url,
+    postgres_connect_args,
     same_database,
 )
 
@@ -72,17 +73,54 @@ def test_same_database_rules():
     assert not same_database("sqlite:///a.db", base)
 
 
-def test_load_environment_fills_missing_but_never_overrides(tmp_path, monkeypatch):
+PG_URL = "postgresql://registry:pw@db.internal:5432/registry"
+
+
+def test_settings_read_dot_env_when_no_real_variable(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
-    env_file.write_text("CFG_TEST_A=1\nCFG_TEST_B=2\n")
-    monkeypatch.delenv("CFG_TEST_A", raising=False)
-    monkeypatch.setenv("CFG_TEST_B", "keep")
-    load_environment(env_file)
-    try:
-        assert os.environ["CFG_TEST_A"] == "1"
-        assert os.environ["CFG_TEST_B"] == "keep"
-    finally:
-        os.environ.pop("CFG_TEST_A", None)
+    env_file.write_text("DATABASE_URL=sqlite:///x.db\n")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert load_settings(env_file).target == SqliteTarget(SERVICE_DIR / "x.db")
+
+
+def test_real_variable_beats_dot_env(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"DATABASE_URL={PG_URL}\n")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///a.db")
+    assert load_settings(env_file).target == SqliteTarget(SERVICE_DIR / "a.db")
+
+
+def test_empty_real_variable_beats_dot_env_and_means_default_sqlite(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"DATABASE_URL={PG_URL}\n")
+    monkeypatch.setenv("DATABASE_URL", "")
+    assert load_settings(env_file).target == SqliteTarget(DEFAULT_SQLITE_PATH)
+
+
+def test_other_keys_in_dot_env_are_ignored(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TEST_DATABASE_URL=postgresql://x@h/t\nFOO=1\n")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert load_settings(env_file).target == SqliteTarget(DEFAULT_SQLITE_PATH)
+
+
+def test_invalid_value_raises_config_error_without_the_value(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:s3cret@h:99999/db")
+    with pytest.raises(ConfigError) as info:
+        load_settings(Path("/nonexistent/.env"))
+    assert "s3cret" not in str(info.value)
+    assert "s3cret" not in "".join(traceback.format_exception(info.value))
+
+
+def test_connect_args_set_timeouts_and_append_to_existing_options():
+    args = postgres_connect_args("postgresql://u@h/db?options=-csearch_path%3Dx")
+    assert args["connect_timeout"] == 5
+    assert args["options"] == "-csearch_path=x -c lock_timeout=5000"
+
+
+def test_connect_args_without_options_set_only_the_lock_timeout():
+    args = postgres_connect_args("postgresql://u@h/db")
+    assert args["options"] == "-c lock_timeout=5000"
 
 
 @pytest.mark.parametrize(

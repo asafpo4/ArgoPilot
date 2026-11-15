@@ -10,7 +10,6 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-import config as service_config  # Importing it loads .env, as the service does.
 import pg_support
 from db import DB_PATH, Connection, connect, connect_postgres, get_db
 from main import app
@@ -20,8 +19,7 @@ SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
 
 def pytest_configure(config: pytest.Config) -> None:
     # Before any fixture runs: the autouse fixture below overwrites DATABASE_URL.
-    assert service_config  # .env is loaded by now
-    pg_support.DEVELOPER_DATABASE_URL = pg_support.capture_developer_database_url(os.environ)
+    pg_support.DEVELOPER_DATABASE_URL = pg_support.capture_developer_database_url()
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +43,7 @@ def use_database(path: Path) -> None:
 
 @pytest.fixture(scope="session")
 def pg_base_url() -> str:
-    url = os.environ.get("TEST_DATABASE_URL")
+    url = pg_support.TestEnv().TEST_DATABASE_URL
     if not url:
         pytest.skip("TEST_DATABASE_URL is not set")
     pg_support.check_comparable_test_url(url)

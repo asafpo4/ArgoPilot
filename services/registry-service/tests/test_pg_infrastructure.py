@@ -20,10 +20,13 @@ SERVICE_DIR = Path(__file__).resolve().parent.parent
 TABLES = ["farms", "crops", "soils", "emitters", "plots"]
 
 
-def test_capture_ignores_empty_and_returns_value() -> None:
-    assert capture_developer_database_url({}) is None
-    assert capture_developer_database_url({"DATABASE_URL": ""}) is None
-    assert capture_developer_database_url({"DATABASE_URL": "postgresql://h/d"}) == "postgresql://h/d"
+def test_capture_ignores_empty_and_returns_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert capture_developer_database_url() is None
+    monkeypatch.setenv("DATABASE_URL", "")
+    assert capture_developer_database_url() is None
+    monkeypatch.setenv("DATABASE_URL", "postgresql://h/d")
+    assert capture_developer_database_url() == "postgresql://h/d"
 
 
 def test_check_refuses_on_match() -> None:
