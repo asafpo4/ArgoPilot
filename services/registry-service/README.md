@@ -11,7 +11,7 @@ uv sync
 bash seed_registry.sh
 ```
 
-The second command creates `registry.db`. Running it again gives a clean file.
+The second command creates `registry.db`: it defines the SQLite tables and loads the sample rows from `sql/seed_data.sql`. Running it again gives a clean file.
 
 ## Database
 
@@ -21,7 +21,9 @@ The second command creates `registry.db`. Running it again gives a clean file.
 - `sqlite:///path` selects SQLite. A relative path is resolved against the service directory, not the working directory.
 - Unset or empty means the local `registry.db`.
 
-The service loads `.env` from the service directory. A real environment variable wins over the file. The URL is checked at startup, and a bad one stops the service with a message that does not show the URL.
+Settings are read with pydantic-settings in `config.py`. The service reads `.env` from the service directory, not from the working directory. A real environment variable wins over the file, even an empty one (which means SQLite).
+
+`DATABASE_URL` is optional, so no variable is required to start the registry. Instead, the registry fails loudly on an invalid value: the URL is checked at startup, and a bad one stops the service with a message that does not show the URL. The rule "a missing required variable stops startup" is demonstrated in the new services, not here.
 
 Percent-encode special characters (`@ / : ? # %`) in a user name or password. An unencoded `@` after the host part is rejected at startup.
 
@@ -31,24 +33,24 @@ Never put a real `DATABASE_URL` in `.env.example`. That file is committed and mu
 
 Do not enable DEBUG logging for the `sqlalchemy.engine` logger in production, because it logs result rows.
 
-### PostgreSQL schema
+### PostgreSQL: create the tables and load the sample data
 
 PostgreSQL prerequisites:
 
 - PostgreSQL 12 or later. Older servers return floats with 15 digits, so the exact float round trip fails.
 - A UTF8 database. With LATIN1, non-Latin names get a 422 "invalid characters". With SQL_ASCII, values come back as bytes.
-- The service role must own the tables or be granted access. The script has no GRANTs, so run it as the service role, or grant SELECT, INSERT, UPDATE and DELETE on the five tables. Otherwise every request fails with a 500.
+- The service role must own the tables or be granted access. The seed command creates the tables as the role in `DATABASE_URL`, so run it as the service role, or grant SELECT, INSERT, UPDATE and DELETE on the five tables to that role. Otherwise every request fails with a 500.
 - Behind PgBouncer, the `options` startup parameter is rejected unless the pooler is set to ignore it. The service sets `options` for `lock_timeout`.
 
-The service never creates tables. Run the schema script by hand. `psql` does not read `DATABASE_URL` or `.env`, so export the variable and pass it as the connection. An unset variable then fails loudly:
+The service never creates tables on startup. One command creates them in an empty PostgreSQL database and loads the sample data. Put `DATABASE_URL` in the environment or in `.env`, then run, from this folder:
 
 ```bash
-psql "${DATABASE_URL:?DATABASE_URL is not set}" --single-transaction -v ON_ERROR_STOP=1 -f sql/postgres_schema.sql
+uv run python scripts/seed.py
 ```
 
-The `PG*` environment variables work too; then leave out the URL argument. A URL that contains a password is visible in the process list on a shared host, so use `PGPASSWORD` or `~/.pgpass` there.
+It creates the five tables and loads the sample data (2 crops, 3 soils, 4 emitters, 2 farms and 4 plots), all in one transaction. The database must be empty. A second run fails with "The tables already exist", and a failure changes nothing. The command refuses a SQLite or unset `DATABASE_URL` and points at `seed_registry.sh`. Its messages never show the URL, the password or the driver's error text.
 
-It creates the tables and loads the catalogues (crops, soils, emitters). That is all production gets. A second run fails, and a failure leaves nothing behind. `sql/demo_data.sql` holds demo farms and plots for local use and tests. Never load it in production.
+`seed_registry.sh` (SQLite) and `scripts/seed.py` (PostgreSQL) load the same rows from `sql/seed_data.sql`, so the two seeds cannot drift apart. Only the table definitions differ, in `seed_registry.sh` and `sql/postgres_schema.sql`.
 
 ## Run
 
@@ -68,7 +70,7 @@ By default the tests use SQLite only, whatever `DATABASE_URL` says. They work on
 
 ### PostgreSQL tests
 
-Set `TEST_DATABASE_URL` to a throwaway PostgreSQL database, whose user may create schemas:
+Set `TEST_DATABASE_URL` (in the environment or in `.env`) to a throwaway PostgreSQL database, whose user may create schemas:
 
 ```bash
 TEST_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/TEST_DBNAME uv run pytest
