@@ -82,11 +82,34 @@ Every error is `application/problem+json`, with a `code` of `VALIDATION`, `NOT_F
 
 ## Performance
 
-Read routes measured at p95 8.8 ms, against a target of 100 ms or less. Conditions: 1200 requests at 10 requests per second, on a local server with the seed data.
+Target: p95 of 100 ms or less for the read routes.
 
-To repeat it, start the server, then run:
+**PostgreSQL 17**, measured with the seed data loaded by `scripts/seed.py`: overall p95 **34.2 ms**. Per route:
+
+| Route | p95 |
+|---|---|
+| `/v1/farms` | 31.3 ms |
+| `/v1/farms/b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001` | 38.2 ms |
+| `/v1/plots` | 40.0 ms |
+| `/v1/plots/c8f3d1b0-4d2e-5a1b-8b22-1d6e3f702002` | 35.7 ms |
+| `/v1/crops` | 31.2 ms |
+| `/v1/crops/tomato` | 33.8 ms |
+| `/v1/soils` | 34.2 ms |
+| `/v1/soils/loam` | 29.0 ms |
+| `/v1/emitters` | 33.8 ms |
+| `/v1/emitters/dripnet-pc-1.0` | 34.2 ms |
+
+Conditions: WSL2 on one machine. PostgreSQL 17.11 in a local container, reached through Docker at 127.0.0.1. One uvicorn process, no connection pool. 1200 requests at 10 requests per second over 120 seconds. 0 responses other than 200.
+
+The PostgreSQL figure is higher than the SQLite one, probably because each request opens a new database connection (judgment log, entry 23). This was not measured separately. The figure is well under the 100 ms target, so no pool was added.
+
+**SQLite**, measured in task P1 (not repeated for this change): read routes at p95 8.8 ms. Conditions: 1200 requests at 10 requests per second, on a local server with the seed data.
+
+To repeat the PostgreSQL measurement, seed an empty database, start the server against it, then run the script:
 
 ```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME uv run python scripts/seed.py
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME uv run uvicorn main:app --host 127.0.0.1 --port 8000
 uv run python scripts/measure_p95.py
 ```
 
