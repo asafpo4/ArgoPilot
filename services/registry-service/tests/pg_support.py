@@ -18,6 +18,8 @@ DEVELOPER_DATABASE_URL: str | None = None
 class TestEnv(BaseSettings):
     """Raw test settings: no validation, so a bad URL cannot stop the test session."""
 
+    __test__ = False  # Not a test class, whatever pytest thinks of the name.
+
     model_config = SettingsConfigDict(env_file=SERVICE_DIR / ".env", extra="ignore")
 
     DATABASE_URL: str | None = None
