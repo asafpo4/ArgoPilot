@@ -2,7 +2,7 @@
 
 Status: approved by the user on 2026-11-16 (after review in five parts). Branch: `p2`. Date: 2026-11-16.
 Part of task P2. The registry-service part is finished; this service shares no code with it.
-Decisions already in `docs/judgment-log.md`: entry 1 (what "today" means) and entry 2 (a stale answer may have fewer rows). More entries are added with the plan.
+Decisions already in `docs/judgment-log.md`: entry 1 (what "today" means) and entry 2 (a stale answer may have fewer rows). Entries 3 to 12 were added with the plan: 3 one fetch per cell, 4 the cool-down, 5 the cache cap, 6 the stale cap, 7 the async design, 8 cells and request text, 9 provider answers, 10 the key and https, 11 `rain_mm`, 12 limits and credit.
 
 ---
 
@@ -34,7 +34,7 @@ Goals
 - Every number in a 200 answer was given by the provider, unchanged.
 - Every row's date is the provider's date, and the first row of a fresh answer is today at the point (entry 1).
 - A provider outage costs callers at most one documented slow answer per cell per cool-down period.
-- Concurrent requests for the same cell cause one provider call. The others wait and share its result, including a failure, within the documented bounded wait (3.5; judgment log, the entry on one fetch per cell, added with the plan).
+- Concurrent requests for the same cell cause one provider call. The others wait and share its result, including a failure, within the documented bounded wait (3.5; judgment log entry 3).
 - Memory is bounded. The provider is not hammered, by one caller or by many.
 - Settings come from `.env` through pydantic-settings in one `config.py`. A missing required variable stops startup with a clear error.
 
@@ -44,7 +44,7 @@ Non-goals
 - No coordination between processes: the service must run with a single worker (README).
 - No hourly data, no other variables, no past days, no second provider. Only `provider.py` would change for those.
 - No proactive refresh of cells in the background.
-- No global (whole-provider) circuit breaker. The cool-down is per cell (judgment log, later entry).
+- No global (whole-provider) circuit breaker. The cool-down is per cell (judgment log entry 4).
 - No metrics endpoint. No authentication.
 
 Anti-goals (a failure even if the tests pass)
