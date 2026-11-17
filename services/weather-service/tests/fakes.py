@@ -5,7 +5,15 @@ imitates the provider. Every other module refers to the provider through its own
 """
 
 import asyncio
+import inspect
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
+from decimal import Decimal
+from zoneinfo import ZoneInfo
+
+from provider import Day, Failure, ProviderForecast
+
+Outcome = ProviderForecast | Failure | Callable[[Decimal, Decimal], object]
 
 
 class _Drop:
@@ -80,3 +88,42 @@ def provider_body(
         else:
             body[key] = value
     return body
+
+
+def good_forecast(first_date: date, tz: str = "UTC") -> ProviderForecast:
+    """A valid ProviderForecast: seven consecutive rows from `first_date`, in the zone `tz`."""
+    rows = tuple(
+        Day(first_date + timedelta(days=i), round(3.0 + 0.1 * i, 1), round(1.5 * (i % 2), 1))
+        for i in range(7)
+    )
+    return ProviderForecast(rows=rows, tz=ZoneInfo(tz))
+
+
+class FakeProvider:
+    """A Provider with scripted outcomes, used in order. One call to `fetch` is one attempt.
+
+    An outcome is a ProviderForecast, a Failure, or a callable `(lat, lon) -> outcome` (it may raise, or be
+    async). Running past the script is a test error. `calls` counts every call, also one that is held at
+    the gate. With a `gate` (an asyncio.Event), a call waits for `gate.set()` before it answers.
+    """
+
+    def __init__(self, outcomes: Sequence[Outcome], *, gate: asyncio.Event | None = None) -> None:
+        self._outcomes = list(outcomes)
+        self.gate = gate
+        self.calls = 0
+        self.points: list[tuple[Decimal, Decimal]] = []
+
+    async def fetch(self, lat: Decimal, lon: Decimal) -> ProviderForecast | Failure:
+        index = self.calls
+        self.calls += 1
+        self.points.append((lat, lon))
+        if self.gate is not None:
+            await self.gate.wait()
+        if index >= len(self._outcomes):
+            raise AssertionError("FakeProvider has no outcome left for this call")
+        outcome = self._outcomes[index]
+        if callable(outcome):
+            outcome = outcome(lat, lon)
+            if inspect.isawaitable(outcome):
+                outcome = await outcome
+        return outcome  # type: ignore[return-value]
