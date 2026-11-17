@@ -2,7 +2,7 @@
 
 Status: approved by the user on 2026-11-16 (after review in five parts). Branch: `p2`. Date: 2026-11-16.
 Part of task P2. The registry-service part is finished; this service shares no code with it.
-Decisions already in `docs/judgment-log.md`: entry 1 (what "today" means) and entry 2 (a stale answer may have fewer rows). Entries 3 to 12 were added with the plan: 3 one fetch per cell, 4 the cool-down, 5 the cache cap, 6 the stale cap, 7 the async design, 8 cells and request text, 9 provider answers, 10 the key and https, 11 `rain_mm`, 12 limits and credit.
+Decisions already in `docs/judgment-log.md`: entry 1 (what "today" means) and entry 2 (a stale answer may have fewer rows). Entries 3 to 14 were added with the plan and the build: 3 one fetch per cell, 4 the cool-down, 5 the cache cap, 6 the stale cap, 7 the async design, 8 cells and request text, 9 provider answers, 10 the key and https, 11 `rain_mm`, 12 limits and credit, 13 the error middleware, 14 unexpected provider exceptions.
 
 ---
 
@@ -272,7 +272,7 @@ The bar is the registry's, including what its final review found.
 - httpx logs request URLs at INFO, and the URL carries the key. The service sets the `httpx` and `httpcore` loggers to WARNING at startup.
 - The code never formats a provider URL, a request, a response body or an `httpx` exception message into a log line or an error. It logs failure kinds only.
 - Translated failures are raised after their `except` block ends, so no httpx exception (whose message can hold the URL) stays in `__context__` of anything that escapes.
-- One WARNING per failed attempt: cell node, attempt number, and a kind: `timeout`, `transport`, `status <code>`, `not_json`, or `invalid` plus which rule of 4.2 failed. One WARNING when a cycle ends in failure and a cool-down starts. Nothing else is logged on the request path.
+- One WARNING per failed attempt: cell indexes (for example `313,348`), attempt number, and a kind: `timeout`, `transport`, `status <code>`, `not_json`, or `invalid` plus which rule of 4.2 failed. One WARNING when a cycle ends in failure and a cool-down starts. Nothing else is logged on the request path.
 
 ## 4.5 Time
 
@@ -294,7 +294,7 @@ All time comes from an injected `Clock` with three methods: `now()` (UTC, timezo
 
 | File | Responsibility |
 |---|---|
-| `main.py` | `create_app(settings=None, transport=None, clock=None)` and `app`; startup loads settings (`ConfigError` stops startup); routes `/v1/forecast`, `/health` |
+| `main.py` | `create_app(settings=None, transport=None, provider=None, clock=None)` and `app`; startup loads settings (`ConfigError` stops startup); routes `/v1/forecast`, `/health` |
 | `config.py` | `Settings`, `ConfigError`, `load_settings()` |
 | `errors.py` | problem+json helpers and handlers (own copy of the registry's style) |
 | `schemas.py` | response models and the request validation; no defaults on any weather field |
