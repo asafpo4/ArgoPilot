@@ -223,3 +223,9 @@ def test_a_number_that_is_not_finite_is_refused(bad: float) -> None:
         DayOut(date=dt.date(2026, 11, 16), et0_mm=bad, rain_mm=0.0)
     with pytest.raises(ValidationError):
         DayOut(date=dt.date(2026, 11, 16), et0_mm=1.0, rain_mm=bad)
+
+
+def test_the_answer_cannot_have_an_empty_days_list() -> None:
+    # A second line of defence for "a stale answer is never empty" (spec 2.2).
+    with pytest.raises(ValidationError):
+        forecast(days=[])

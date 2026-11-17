@@ -1,4 +1,4 @@
-"""Problem+json errors. The same style as services/registry-service/errors.py; this service keeps its own copy."""
+"""Problem+json errors, in one fixed style: type, title, status, detail, code."""
 
 import logging
 from collections.abc import Awaitable, Callable

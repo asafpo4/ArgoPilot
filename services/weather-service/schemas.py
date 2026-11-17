@@ -106,7 +106,7 @@ class ForecastOut(BaseModel):
     source: Literal["open-meteo"] = "open-meteo"
     fetched_at: dt.datetime
     stale: bool
-    days: list[DayOut]
+    days: list[DayOut] = Field(min_length=1)  # A stale answer is never empty: a second line of defence.
 
     @field_validator("fetched_at")
     @classmethod
