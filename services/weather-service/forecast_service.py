@@ -7,6 +7,7 @@ exception message.
 import asyncio
 import logging
 import math
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -46,10 +47,10 @@ class ForecastService:
     provider: Provider
     clock: Clock
     settings: Settings
-    _entries: dict[Cell, _Entry] = field(default_factory=dict, init=False)
+    _entries: OrderedDict[Cell, _Entry] = field(default_factory=OrderedDict, init=False)  # Least recently used first.
 
     async def get(self, cell: Cell, days: int) -> ForecastResult:
-        entry = self._entries.setdefault(cell, _Entry())
+        entry = self._entry_for(cell)
         if entry.stored is not None and self._is_fresh(entry.stored):
             return ForecastResult("fresh", entry.stored.fetched_at, entry.stored.forecast.rows[:days])
         # No await from the check of the marker to its storing: two requests never both start a fetch.
@@ -90,6 +91,35 @@ class ForecastService:
         finally:
             if entry.inflight is task:
                 entry.inflight = None
+
+    def _entry_for(self, cell: Cell) -> _Entry:
+        """The entry of the cell, marked most recently used. A new entry first makes room (spec 3.6)."""
+        entry = self._entries.get(cell)
+        if entry is not None:
+            self._entries.move_to_end(cell)
+            return entry
+        self._drop_dead_entries()
+        entry = self._entries[cell] = _Entry()
+        self._evict_to_cap()
+        return entry
+
+    def _drop_dead_entries(self) -> None:
+        """Entries whose forecast is past the stale cap can never be served; one with a fetch in flight stays."""
+        dead = [
+            key for key, e in self._entries.items()
+            if e.inflight is None and e.stored is not None
+            and self._age(e.stored) >= self.settings.STALE_MAX_AGE_SECONDS
+        ]
+        for key in dead:
+            del self._entries[key]
+
+    def _evict_to_cap(self) -> None:
+        """Evict the least recently used entries without a fetch in flight. The newest entry is never evicted."""
+        for key in list(self._entries)[:-1]:
+            if len(self._entries) <= self.settings.CACHE_MAX_CELLS:
+                return
+            if self._entries[key].inflight is None:
+                del self._entries[key]
 
     def _today(self, stored: _Stored):
         return self.clock.now().astimezone(stored.forecast.tz).date()
