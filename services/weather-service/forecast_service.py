@@ -1,9 +1,10 @@
 """The forecast service: freshness, stale rules and the fetch cycle (spec 3.2 to 3.5).
 
-This part answers one request at a time per cell. It logs failure kinds only: never a URL, a body or an
+Requests for one cell share one fetch cycle (single flight). It logs failure kinds only: never a URL, a body or an
 exception message.
 """
 
+import asyncio
 import logging
 import math
 from dataclasses import dataclass, field
@@ -37,6 +38,7 @@ class _Stored:
 class _Entry:
     stored: _Stored | None = None
     cooldown_end: float | None = None
+    inflight: "asyncio.Task[bool] | None" = None  # The running fetch cycle of this cell.
 
 
 @dataclass
@@ -50,13 +52,42 @@ class ForecastService:
         entry = self._entries.setdefault(cell, _Entry())
         if entry.stored is not None and self._is_fresh(entry.stored):
             return ForecastResult("fresh", entry.stored.fetched_at, entry.stored.forecast.rows[:days])
-        if await self._fetch_cycle(cell, entry):
+        # No await from the check of the marker to its storing: two requests never both start a fetch.
+        task = entry.inflight
+        if task is None:
+            task = asyncio.create_task(self._run_cycle(cell, entry))
+            entry.inflight = task
+        # The shield keeps a cancelled waiter from cancelling the fetch for the others.
+        if await asyncio.shield(task):
             assert entry.stored is not None
             return ForecastResult("fresh", entry.stored.fetched_at, entry.stored.forecast.rows[:days])
         return self._failure_answer(entry, days)
 
     async def aclose(self) -> None:
-        """Nothing runs in the background yet; later tasks cancel running fetches here."""
+        """Cancel the running fetch cycles and clear their markers."""
+        running = [(e, e.inflight) for e in self._entries.values() if e.inflight is not None]
+        for _, task in running:
+            task.cancel()
+        await asyncio.gather(*(task for _, task in running), return_exceptions=True)
+        for entry, task in running:
+            if entry.inflight is task:  # A task cancelled before it started never ran its `finally`.
+                entry.inflight = None
+
+    async def _run_cycle(self, cell: Cell, entry: _Entry) -> bool:
+        """The cycle as a task: it ends with True or False and never raises to the waiters."""
+        task = asyncio.current_task()
+        try:
+            return await self._fetch_cycle(cell, entry)
+        except Exception as exc:  # Only the class is logged, never the message.
+            entry.cooldown_end = self.clock.monotonic() + self.settings.COOLDOWN_SECONDS
+            logger.warning(
+                "provider cycle failed: cell=%s,%s kinds=unexpected %s",
+                cell.lat_index, cell.lon_index, type(exc).__name__,
+            )
+            return False
+        finally:
+            if entry.inflight is task:
+                entry.inflight = None
 
     def _today(self, stored: _Stored):
         return self.clock.now().astimezone(stored.forecast.tz).date()
