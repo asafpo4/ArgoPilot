@@ -55,6 +55,35 @@ def test_the_key_is_in_no_log_error_body_or_traceback_chain(
     assert "RuntimeError" in caplog.text  # the class is logged, the message is not
 
 
+def answering(status: int, body: bytes):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, content=body)
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [(500, b"server error"), (200, b"this is not json")],
+    ids=["status 500", "status 200 with a bad body"],
+)
+def test_the_key_is_in_no_log_when_the_provider_answers_with_a_response(
+    caplog: pytest.LogCaptureFixture, status: int, body: bytes
+) -> None:
+    # A response (not a transport error) makes httpx write its "HTTP Request: GET <url>" INFO line,
+    # and the URL carries the key. Only silence_http_logs() keeps that line out of the log.
+    transport = httpx.MockTransport(answering(status, body))
+    app = create_app(key_settings(), transport=transport, clock=FakeClock(NOON))
+    with caplog.at_level(logging.DEBUG):  # every logger, httpx and httpcore included
+        for name in ("httpx", "httpcore"):
+            logging.getLogger(name).setLevel(logging.NOTSET)  # as if nobody had silenced them
+        with TestClient(app) as client:
+            failed = client.get(QUERY)
+    assert failed.status_code == 503
+    assert KEY not in failed.text and KEY not in str(failed.headers)
+    assert KEY not in caplog.text and "apikey" not in caplog.text
+
+
 def test_settings_repr_and_a_config_error_chain_never_show_the_key() -> None:
     assert KEY not in repr(key_settings()) and KEY not in str(key_settings())
     with pytest.raises(ConfigError) as info:
