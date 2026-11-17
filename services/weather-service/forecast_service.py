@@ -54,6 +54,8 @@ class ForecastService:
             return ForecastResult("fresh", entry.stored.fetched_at, entry.stored.forecast.rows[:days])
         # No await from the check of the marker to its storing: two requests never both start a fetch.
         task = entry.inflight
+        if task is None and self._cooling(entry):
+            return self._failure_answer(entry, days)  # Spec 3.4 step 3: no provider call, no wait.
         if task is None:
             task = asyncio.create_task(self._run_cycle(cell, entry))
             entry.inflight = task
@@ -107,6 +109,9 @@ class ForecastService:
             return ()
         today = self._today(stored)
         return tuple(row for row in stored.forecast.rows if row.date >= today)[:days]
+
+    def _cooling(self, entry: _Entry) -> bool:
+        return entry.cooldown_end is not None and self.clock.monotonic() < entry.cooldown_end
 
     def _failure_answer(self, entry: _Entry, days: int) -> ForecastResult:
         if entry.stored is not None:

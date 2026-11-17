@@ -147,6 +147,7 @@ async def test_an_error_outside_the_provider_call_is_a_failed_cycle_and_clears_t
     assert svc._entries[CELL].inflight is None
     assert svc._entries[CELL].cooldown_end is not None
     clock.sleep = good_sleep
+    clock.advance(31)
     assert (await asyncio.wait_for(svc.get(CELL, 3), LIMIT)).kind == "fresh"
 
 
