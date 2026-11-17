@@ -81,7 +81,7 @@ These signatures are used across tasks; later tasks rely on them exactly.
 
 ### Task 2: Settings
 
-**Model:** Haiku (table-driven). Stop and ask for Sonnet if any rejected-case test shows a value inside an error message and one fix attempt does not remove it.
+**Model:** Sonnet (it touches secrets and error messages). Stop and ask for a stronger model if any rejected-case test shows a value inside an error message and one fix attempt does not remove it.
 
 **Files:** Create `config.py`, `.env.example`, `tests/test_config.py`.
 
