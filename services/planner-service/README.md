@@ -21,6 +21,8 @@ A missing or invalid variable stops startup. The error names the variable and th
 
 The port is not a setting. The service keeps no state, so more than one worker is fine.
 
+At startup the service sets the `httpx`, `httpcore` and `uvicorn.access` loggers to WARNING, because the access line of uvicorn holds the request path, so the plot id.
+
 ## Settings
 
 | Variable | Default | Rule |

@@ -125,7 +125,7 @@ Top level:
 
 | Field | Type, unit | Meaning |
 |---|---|---|
-| `plot_id` | text | the plot asked for, as the registry has it |
+| `plot_id` | text | the plot asked for |
 | `crop_id` | text | the plot's crop (`tomato` or `bell-pepper`) |
 | `area_m2` | number, m² | the plot's area |
 | `flow_lph` | number, L/h | total flow of the plot's emitters: `area_m2 / (row_spacing_m x emitter_spacing_m) x emitter flow_lph` (3.6) |
@@ -270,7 +270,7 @@ The state is the depletion `D` at the end of the previous day (mm of water missi
 1. `d`, stage and `Kc` (3.2), `ETc`, `p` and `RAW` (3.3).
 2. **Rain counted:** `rain_counted = 0` if `rain_mm < 0.2 x ET0`, otherwise `rain_mm` (judgment log, entry 3). Rain exactly at the threshold counts. If ET0 is 0, any rain counts.
 3. **Depletion before irrigation:** `before = min(TAW, max(0, D + ETc - rain_counted))`. A negative value means the rain was more than the bucket could hold, and the excess is lost as deep percolation and not carried (Eq. 85, 86 and 88). The upper limit `TAW` is Eq. 86. The crop cannot take more water than the root zone holds.
-4. **Irrigation:** `need = max(0, before - RAW)`. `irrigation = min(need, cap_mm)`, where `cap_mm` is the depth that 1440 minutes of running gives (3.5). `capped` is true when `need > cap_mm`.
+4. **Irrigation:** `need = max(0, before - RAW)`, and a `need` below `1e-9` mm counts as 0 (float noise, judgment log entry 16). `irrigation = min(need, cap_mm)`, where `cap_mm` is the depth that 1440 minutes of running gives (3.5). `capped` is true when `need > cap_mm`.
 5. **End of day:** `D = before - irrigation`. `bucket_mm = TAW - D` and `trigger_mm = TAW - RAW`.
 
 `Ks` (FAO Eq. 84) is **not** used: the plan always uses `ETc` and never the reduced ET of a stressed crop (my call, below). Nothing in the plan depends on the soil's real water content except through this model.
@@ -370,7 +370,7 @@ Why these defaults (judgment log, entry 9): weather already makes up to 3 attemp
 - Between attempts the planner waits `RETRY_DELAY_SECONDS`, through an injected `sleep` (tests use a fake one). There is no wait after the last attempt. The planner reads no clock otherwise: its days come from weather's rows.
 - **Registry** is retried on a timeout, a transport error and a 5xx. It is not retried on a 404 (an answer) or on any other 4xx (our request is wrong, and a retry will not help).
 - **Weather** is retried on every failure, up to `WEATHER_RETRIES` (default 0), with the same delay.
-- A thrown error inside an attempt counts as a failed attempt. An unexpected exception is logged by class only (4.5).
+- A thrown error inside an attempt counts as a failed attempt. An unexpected exception inside the client counts as a failed attempt of kind `transport`, is retried like a transport error, and its attempt log line reads `unexpected: <ClassName>` (the class only, 4.5).
 
 The answer when a call ends in failure:
 
@@ -408,7 +408,7 @@ A single bad value rejects the whole answer. There is no partial use, no zero fo
 ## 4.5 Logging and secrets
 
 The bar is weather-service's. The planner holds no secret, but its logs must not carry a URL, a plot id, a response body or an exception message, because they could carry data of a grower or of another service.
-- The `httpx` and `httpcore` loggers are set to WARNING at startup (httpx logs request URLs at INFO).
+- The `httpx` and `httpcore` loggers are set to WARNING at startup (httpx logs request URLs at INFO). The `uvicorn.access` logger is set to WARNING too, because its line holds the request path, so the plot id.
 - One WARNING per failed attempt of the client: the service name (`registry-service` or `weather-service`), the attempt number and a kind: `timeout`, `transport`, `status <code>`, or `not_json`. An invalid answer (4.4) is checked after the client has returned, so it has no attempt line.
 - One WARNING when a request ends in a 503, with the service name and the kind. For an invalid answer the kind is `invalid` plus the rule of 4.4 that failed (for example `weather-service unavailable: invalid dates not consecutive`).
 - An unexpected exception is logged by its class only, never its message.
@@ -478,7 +478,7 @@ No test in the default run touches the real network. The clients run against `ht
   - `planting_date_past_cycle` and `planting_date_in_future` with their numbers.
 - **Contract:** the exact set of keys at the top level, in a day and in a warning; rounding as in 2.2 (a tie rounds half up, `kc` 3 decimals, whole litres and minutes, at least 1 minute for an irrigation above 0, `run_minutes: 0` only when `irrigation_mm` is 0); `fetched_at` is weather's; `et0_mm` and `rain_mm` equal weather's. Every failure test checks the answer is a 503, never a 200 with made-up numbers. A test produces the README's example (the North block, 2026-11-17) from the fake upstreams and checks it equals the JSON in the README text.
 - **Errors and health:** 404 for an unknown route and 405 for a wrong method, with their codes and the problem+json shape. An unexpected exception inside the route returns 500 `UNAVAILABLE` with the fixed detail, no `Retry-After`, and a marker secret in the exception message is in neither the body nor the log. `GET /health` answers `{"status": "ok"}` and makes zero upstream calls, also while both upstreams fail.
-- **Logging and secrets (4.5):** with every logger at DEBUG, no log record holds a URL, a plot id, a response body or an exception message (marker values in each); a failed attempt logs the service name, the attempt number and the kind; `httpx` and `httpcore` are at WARNING; no exception chain that escapes holds an httpx exception; the settings `repr` shows no URL.
+- **Logging and secrets (4.5):** with every logger at DEBUG, no log record holds a URL, a plot id, a response body or an exception message (marker values in each); a failed attempt logs the service name, the attempt number and the kind; `httpx`, `httpcore` and `uvicorn.access` are at WARNING; no exception chain that escapes holds an httpx exception; the settings `repr` shows no URL.
 - **Rules about the code:** a test that fails if any module refers to `services/registry-service` or `services/weather-service`, and one that fails if `engine.py` imports anything outside the standard library, or imports `time`, `os`, `random`, `httpx` or `fastapi`, or calls `date.today()` or `datetime.now()`, or reads the environment. The engine may use `datetime.date` and `timedelta` for date arithmetic.
 
 **Settings table** (one parametrized case per row):

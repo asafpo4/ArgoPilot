@@ -97,7 +97,7 @@ Each entry: what the AI tools suggested or the open question they raised, what I
 ## 10. Very small irrigations are kept, with no minimum dose
 
 - **Suggested:** after rain a day can cross the trigger by a tiny overshoot (North block: 0.3 mm, 300 L, 11 minutes). The agent compared (A) keeping the rule as written with (B) a minimum dose of 1 mm with the depletion carried to the next day. It recommended A.
-- **Decided:** option A. Every overshoot above 0 is irrigated, however small. A day with irrigation shows at least 1 minute.
+- **Decided:** option A. Every overshoot above 0 is irrigated, however small, except float noise below 1e-9 mm (entry 16). A day with irrigation shows at least 1 minute.
 - **Why:** the two options give the same total over two days (5300 L, 191 minutes) and differ only in the timing of 300 L, which B moves by one day. B leaves the crop 0.3 mm beyond the no-stress limit for that day (Ks 0.996, a loss of 0.4 percent of ET). A tiny dose happens only on the first day after a rain episode, because the next day the plan irrigates the full ETc. A keeps the rule to one line that can be checked by hand, and B needs a threshold with no source, like the haircut rejected in entry 3.
 - **Cost (stated in the README):** after rain the plan can ask for a run of a few minutes. A margin below RAW (entry 2) or a minimum dose can be added later.
 

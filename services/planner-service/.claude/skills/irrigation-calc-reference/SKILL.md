@@ -44,7 +44,8 @@ For each weather row, in date order:
 7. `before = min(TAW, max(0, D + ETc - rain counted))` (mm). A negative value
    is rain the bucket could not hold: it is lost and not carried (Eq. 85, 86,
    88). The upper limit TAW is Eq. 86.
-8. `need = max(0, before - RAW)` (mm).
+8. `need = max(0, before - RAW)` (mm). A `need` below 1e-9 mm counts as 0 (float
+   noise, entry 16).
    `irrigation = min(need, cap_mm)` (mm). `capped` is true when `need > cap_mm`.
 9. `litres = irrigation x area_m2` (L). 1 mm over 1 m2 is 1 L.
 10. `run_minutes = litres / flow_lph x 60` (min). When capped it is exactly 1440.
