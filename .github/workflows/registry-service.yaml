@@ -16,10 +16,13 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.3
-        
+
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Create the SQLite seed database
+        run: bash seed_registry.sh
+        
       - name: Run tests with coverage
         run: uv run pytest --cov --cov-report=term --cov-report=html
 
