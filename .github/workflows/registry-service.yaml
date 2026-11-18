@@ -11,7 +11,7 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ci-throwaway-pw-7f3a
         ports:
           - 5432:5432
         options: >-
@@ -20,7 +20,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:ci-throwaway-pw-7f3a@localhost:5432/postgres
     defaults:
       run:
         working-directory: services/registry-service
