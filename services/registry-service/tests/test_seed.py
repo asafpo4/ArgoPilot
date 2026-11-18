@@ -12,9 +12,9 @@ import pytest
 import sqlalchemy as sa
 
 import db
-from config import parse_database_url
+from config import PostgresTarget, SqliteTarget, parse_database_url
 from pg_support import with_options
-from seeding import SQL_DIR, seed_postgres, split_statements
+from seeding import SQL_DIR, SeedError, require_postgres, seed_postgres, split_statements
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 TABLES = ["crops", "soils", "emitters", "farms", "plots"]  # In dependency order.
@@ -179,3 +179,17 @@ def test_cli_seeds_an_empty_database_then_refuses_a_second_run(
     assert "already exist" in output
     assert "Traceback" not in output
     assert table_counts(engine) == EXPECTED_COUNTS
+
+
+def test_require_postgres_returns_a_postgres_target_unchanged() -> None:
+    target = PostgresTarget("postgresql://u:pw@h/db")
+    assert require_postgres(target) is target
+
+
+def test_require_postgres_refuses_a_sqlite_target_with_a_safe_message(tmp_path: Path) -> None:
+    with pytest.raises(SeedError) as info:
+        require_postgres(SqliteTarget(tmp_path / "x.db"))
+    assert str(info.value) == (
+        "seed.py loads PostgreSQL only. Set DATABASE_URL to a postgresql:// URL, "
+        "or use seed_registry.sh for SQLite."
+    )

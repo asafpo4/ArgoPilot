@@ -1,8 +1,10 @@
 import traceback
 from pathlib import Path
 
+import pydantic
 import pytest
 
+import config
 from fakes import exception_chain
 from config import (
     DEFAULT_SQLITE_PATH,
@@ -374,3 +376,58 @@ def test_startup_settings_error_chain_has_no_context_and_no_secret(url, monkeypa
         load_settings(Path("/nonexistent/.env"))
     assert exception_chain(info.value) == [info.value]
     assert "PWMARKER9z" not in "".join(traceback.format_exception(info.value))
+
+
+# Remaining lines and branches of config.py, one test per behaviour.
+
+
+def test_repr_of_a_url_libpq_cannot_parse_shows_nothing():
+    secret_url = "postgresql://u:secr%zzet@127.0.0.1:1/db"
+    target = PostgresTarget(secret_url)
+    assert str(target) == "postgresql://***"
+    assert repr(target) == "PostgresTarget(url='postgresql://***')"
+
+
+def test_repr_puts_an_ipv6_host_in_brackets():
+    assert str(PostgresTarget("postgresql://u:pw@[::1]/db")) == "postgresql://u:***@[::1]/db"
+
+
+def test_repr_masks_a_password_that_has_no_user():
+    assert str(PostgresTarget("postgresql://:pw@h/db")) == "postgresql://:***@h/db"
+
+
+def test_repr_shows_nothing_when_the_database_name_holds_part_of_a_password(monkeypatch):
+    # libpq reads this URL's database name as "Secret@127.0.0.1:1/db". The consistency check
+    # normally rejects it first, so it is switched off to reach the name check.
+    monkeypatch.setattr(config, "_libpq_agrees_with_urlsplit", lambda url: True)
+    target = PostgresTarget("postgresql://user:2024/Secret@127.0.0.1:1/db")
+    assert str(target) == "postgresql://***"
+    assert repr(target) == "PostgresTarget(url='postgresql://***')"
+
+
+def test_load_settings_turns_a_pydantic_validation_error_into_a_config_error(monkeypatch):
+    class Strict(pydantic.BaseModel):
+        value: int
+
+    def failing_settings(**kwargs):
+        Strict(value="SECRET-VALUE")  # raises a real ValidationError that holds the input
+
+    monkeypatch.setattr(config, "Settings", failing_settings)
+    with pytest.raises(ConfigError) as info:
+        load_settings(Path("/nonexistent/.env"))
+    assert str(info.value) == "Invalid settings"
+    assert exception_chain(info.value) == [info.value]
+    assert "SECRET-VALUE" not in "".join(traceback.format_exception(info.value))
+
+
+def test_port_list_shorter_than_the_host_list_is_rejected():
+    # Two hosts from ?host=, one port in the netloc: libpq counts 2 ports, the netloc has 1.
+    _assert_fixed_error("postgresql://:1/db?host=a,b&port=1,2", ["a,b", "1,2"])
+
+
+def test_query_port_that_differs_from_the_netloc_port_is_rejected():
+    _assert_fixed_error("postgresql://u@h:5432/db?port=5433", ["5433"])
+
+
+def test_more_ports_than_hosts_is_rejected():
+    _assert_fixed_error("postgresql://u@h/db?port=1,2", ["1,2"])
