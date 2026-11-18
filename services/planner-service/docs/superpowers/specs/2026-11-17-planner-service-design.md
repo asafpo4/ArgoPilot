@@ -388,7 +388,7 @@ A fresh weather answer, a stale weather answer and a short one are all successes
 
 ## 4.4 What counts as a valid upstream answer
 
-An answer is used only if all of this holds. Otherwise it is a failed attempt of that service, and nothing from it reaches the plan. The checks are made on the decoded JSON, in `upstream.py`, before the engine is called (the engine checks again, 3.10).
+An answer is used only if all of this holds. Otherwise it is a failure of that service, it is not retried, and nothing from it reaches the plan. The checks are made on the decoded JSON, in `upstream.py`, before the engine is called (the engine checks again, 3.10).
 
 **Plot** (registry): status 200, a JSON object with:
 - `crop_id`, `soil_id` and `emitter_id`: non-empty text;
