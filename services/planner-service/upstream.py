@@ -187,7 +187,12 @@ def _number(value: object, name: str) -> float:
     # A boolean is an int in Python, but it is not a number here.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise InvalidAnswer(f"{name} not a number")
-    if not math.isfinite(value):
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:  # an integer too large for a float
+        finite = False
+    # Raised after the except block: no exception is left in __context__.
+    if not finite:
         raise InvalidAnswer(f"{name} not finite")
     return value
 

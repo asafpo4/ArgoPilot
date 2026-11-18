@@ -143,6 +143,20 @@ def test_tiny_irrigation_runs_at_least_one_minute():
     assert day["run_minutes"] >= 1
 
 
+def test_float_noise_after_the_cycle_is_no_irrigation():
+    # Tomato planted 2026-03-01 is past its cycle on 2026-11-17. Two days of (et0 3.0, rain 2.4)
+    # leave a need of about 7e-15 mm, which is float noise and must not become a minute of running.
+    out, _, result = build([(3.0, 2.4), (3.0, 2.4)])
+    for raw, day in zip(result.days, out["days"]):
+        assert raw.stage == "after_cycle"
+    second = result.days[1]
+    assert second.irrigation_mm == 0
+    assert second.litres == 0
+    assert second.run_minutes == 0
+    assert out["days"][1]["run_minutes"] == 0
+    assert out["days"][1]["litres"] == 0
+
+
 def test_run_minutes_is_zero_only_without_irrigation():
     out, _, result = build(NORTH_PAIRS)
     assert result.days[1].irrigation_mm == 0

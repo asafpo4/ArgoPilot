@@ -23,7 +23,7 @@ EXC_MARK = "EXCMARK9042"
 MARKS = (URL_MARK, PLOT_MARK, BODY_MARK, EXC_MARK)
 REGISTRY_URL = f"http://registry.test/{URL_MARK}"
 WEATHER_URL = f"http://weather.test/{URL_MARK}"
-QUIET = ("httpx", "httpcore")
+QUIET = ("httpx", "httpcore", "uvicorn.access")
 
 
 @pytest.fixture
@@ -167,7 +167,7 @@ def test_an_invalid_answer_logs_the_service_and_the_rule_only(caplog: pytest.Log
     assert "weather-service unavailable: invalid source not accepted" in messages(caplog)
 
 
-def test_the_httpx_loggers_are_at_warning_after_startup(all_loggers_at_debug: None) -> None:
+def test_the_httpx_and_uvicorn_access_loggers_are_at_warning_after_startup(all_loggers_at_debug: None) -> None:
     for name in QUIET:
         assert logging.getLogger(name).level == logging.DEBUG
     with client_for(world()):
@@ -224,6 +224,7 @@ async def test_an_invalid_answer_has_no_exception_of_the_check_in_its_chain(plot
     with pytest.raises(UpstreamFailure) as caught:
         await build_plan(PLOT_MARK, 1, registry, weather)
     assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
     assert_clean(caught.value)
 
 

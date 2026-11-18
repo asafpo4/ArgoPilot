@@ -16,8 +16,9 @@ from upstream import NotFound, Upstream
 
 
 def silence_http_logs() -> None:
-    # httpx logs the URL of every request at INFO, and a URL holds a plot id.
-    for name in ("httpx", "httpcore"):
+    # httpx logs the URL of every request at INFO, and a URL holds a plot id. The uvicorn access
+    # line holds the request path, so the plot id of the plan request, and it is quiet at WARNING.
+    for name in ("httpx", "httpcore", "uvicorn.access"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
 

@@ -216,10 +216,11 @@ async def test_failure_kinds(outcome, kind):
 
 @pytest.mark.parametrize(
     ("header", "expected"),
-    [("7", 7), ("1", 1), ("60", 60), ("0", 5), ("61", 5), ("abc", 5), ("-3", 5), ("7.5", 5), ("", 5), (None, 5)],
+    [("7", 7), ("1", 1), ("60", 60), ("0", 5), ("61", 5), ("abc", 5), ("-3", 5), ("7.5", 5), ("", 5), (None, 5), ("²", 5), ("٣", 5)],
 )
 async def test_retry_after_of_the_failing_answer(header, expected):
-    headers = {} if header is None else {"Retry-After": header}
+    # httpx cannot encode "²" or "٣" from a str, so the header goes out as UTF-8 bytes, as a server could send it.
+    headers = {} if header is None else {"Retry-After": header.encode("utf-8")}
     upstream, _ = make(Script(json_response({}, 503, headers)), retries=0)
     assert (await failure_of(upstream, "/x")).retry_after == expected
 

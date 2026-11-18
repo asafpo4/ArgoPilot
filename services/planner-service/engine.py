@@ -16,6 +16,8 @@ P_SLOPE = 0.04  # change of p per mm/day of ETc (entry 1)
 P_MIN = 0.1
 P_MAX = 0.8
 MAX_RUN_MINUTES = 1440.0  # the daily cap (entry 2)
+# A need below this many mm is float noise (for example 7.1e-15 after the cycle ends) and counts as 0 (entry 16).
+NEED_TOLERANCE_MM = 1e-9
 
 
 @dataclass(frozen=True)
@@ -169,6 +171,8 @@ def plan(plot: PlotInput, rows: Sequence[WeatherRow]) -> EngineResult:
         counted = 0.0 if row.rain_mm < RAIN_THRESHOLD_FACTOR * row.et0_mm else row.rain_mm
         before = min(taw, max(0.0, depletion + etc - counted))
         need = max(0.0, before - raw)
+        if need < NEED_TOLERANCE_MM:
+            need = 0.0
         capped = need > cap_mm
         irrigation = cap_mm if capped else need
         litres = irrigation * plot.area_m2

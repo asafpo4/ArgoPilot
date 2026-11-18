@@ -241,6 +241,8 @@ SOIL_BAD = [
     {"available_water_mm_per_m": math.inf},
     {"available_water_mm_per_m": 0},
     {"available_water_mm_per_m": -5},
+    {"available_water_mm_per_m": 10**400},
+    {"available_water_mm_per_m": -(10**400)},
 ]
 
 
@@ -380,7 +382,7 @@ def test_forecast_row_value_not_a_number(key, value):
 
 
 @pytest.mark.parametrize("key", ["et0_mm", "rain_mm"])
-@pytest.mark.parametrize("value", [-0.1, -5, math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize("value", [-0.1, -5, math.nan, math.inf, -math.inf, 10**400, -(10**400)])
 def test_forecast_row_value_negative_or_not_finite(key, value):
     bad = row(19)
     bad[key] = value

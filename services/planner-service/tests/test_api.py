@@ -220,6 +220,7 @@ REGISTRY_FAILURES = {
     "emitter 404": dict(emitter=Script(httpx.Response(404))),
     "emitter 500": dict(emitter=Script(httpx.Response(500))),
     "emitter invalid": dict(emitter=Script(json_response({"flow_lph": True}))),
+    "soil huge integer": dict(soil=Script(json_response({"available_water_mm_per_m": 10**400}))),
 }
 
 
@@ -257,6 +258,9 @@ WEATHER_FAILURES = {
     "source": Script(lambda request: json_response(forecast_body(3, source="other"))),
     "empty days": Script(lambda request: json_response(forecast_body(0))),
     "too many days": Script(lambda request: json_response(forecast_body(5))),
+    "huge integer": Script(
+        lambda request: json_response({**forecast_body(3), "days": [{"date": "2026-11-17", "et0_mm": 10**400, "rain_mm": 0}]})
+    ),
     "negative rain": Script(
         lambda request: json_response({**forecast_body(3), "days": [{"date": "2026-11-17", "et0_mm": 3, "rain_mm": -1}]})
     ),
