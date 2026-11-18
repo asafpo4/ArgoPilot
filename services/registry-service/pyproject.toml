@@ -21,4 +21,12 @@ pythonpath = ["."]
 dev = [
     "httpx~=0.28",
     "pytest~=9.2",
+    "pytest-cov>=7.1.0",
 ]
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
