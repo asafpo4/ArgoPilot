@@ -409,7 +409,8 @@ A single bad value rejects the whole answer. There is no partial use, no zero fo
 
 The bar is weather-service's. The planner holds no secret, but its logs must not carry a URL, a plot id, a response body or an exception message, because they could carry data of a grower or of another service.
 - The `httpx` and `httpcore` loggers are set to WARNING at startup (httpx logs request URLs at INFO).
-- One WARNING per failed attempt: the service name (`registry-service` or `weather-service`), the attempt number and a kind: `timeout`, `transport`, `status <code>`, `not_json`, or `invalid` plus the rule of 4.4 that failed (for example `weather-service attempt 1 invalid: dates not consecutive`). One WARNING when a request ends in a 503, with the service name and the kind.
+- One WARNING per failed attempt of the client: the service name (`registry-service` or `weather-service`), the attempt number and a kind: `timeout`, `transport`, `status <code>`, or `not_json`. An invalid answer (4.4) is checked after the client has returned, so it has no attempt line.
+- One WARNING when a request ends in a 503, with the service name and the kind. For an invalid answer the kind is `invalid` plus the rule of 4.4 that failed (for example `weather-service unavailable: invalid dates not consecutive`).
 - An unexpected exception is logged by its class only, never its message.
 - Translated failures are raised after their `except` block ends, so no httpx exception (whose message can hold the URL) stays in the `__context__` of anything that escapes.
 - Nothing else is logged on the request path.
