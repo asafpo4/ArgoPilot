@@ -332,3 +332,20 @@ def test_first_failure_wins_and_the_sibling_calls_are_cancelled() -> None:
     assert state["cancelled"] is True
     assert elapsed < 0.9
     assert world.forecast.calls == 1
+
+
+def test_both_http_clients_have_no_default_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    # httpx's default of 5 s per phase would cut the 12 s deadline of weather short: only the
+    # deadline of each attempt may end a call (spec 4.3).
+    created: list[httpx.AsyncClient] = []
+
+    class RecordingClient(httpx.AsyncClient):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)
+            created.append(self)
+
+    monkeypatch.setattr(httpx, "AsyncClient", RecordingClient)
+    with planner_client(FakeWorld()):
+        assert len(created) == 2
+        for client in created:
+            assert client.timeout == httpx.Timeout(None)

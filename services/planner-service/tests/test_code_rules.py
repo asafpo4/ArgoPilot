@@ -30,3 +30,34 @@ def test_engine_is_pure():
                 and isinstance(node.value, ast.Name)
                 and node.value.id == "os"
             ), "engine.py reads the environment"
+
+
+OTHER_SERVICES = ("registry-service", "registry_service", "weather-service", "weather_service")
+SKIPPED_DIRS = {"tests", ".venv", "docs", "__pycache__"}
+
+
+def service_modules() -> list[Path]:
+    return [
+        path for path in sorted(ROOT.rglob("*.py"))
+        if not SKIPPED_DIRS & set(path.relative_to(ROOT).parts)
+    ]
+
+
+# These two lines are the fixed service names used as the 503 detail and in log lines, as the spec
+# requires. They are allowed by file and exact line text. Any other mention, even in a comment or a
+# docstring, fails.
+ALLOWED_LINES = {
+    "planner.py": {'REGISTRY = "registry-service"', 'WEATHER = "weather-service"'},
+}
+
+
+def test_no_imports_from_other_services():
+    modules = service_modules()
+    assert {path.name for path in modules} >= {"engine.py", "upstream.py", "main.py", "planner.py"}
+    for path in modules:
+        allowed = ALLOWED_LINES.get(path.name, set())
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if line.strip() in allowed:
+                continue
+            for name in OTHER_SERVICES:
+                assert name not in line, f"{path.name}:{number} mentions {name}"
