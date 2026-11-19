@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# frontend
 
-## Getting Started
+The AgroPilot web app: the farms and their plots, and each plot's 7-day irrigation plan. Next.js (App Router, TypeScript, Tailwind CSS, shadcn/ui).
 
-First, run the development server:
+| Page | Shows |
+|---|---|
+| `/` | every farm with its plots, each plot links to its page |
+| `/plots/{id}` | today's recommendation, warnings, the 7-day plan, the Open-Meteo credit |
 
-```bash
+Every page has a status line with the state of registry, weather and planner (`GET /health`).
+
+The browser never calls a service. Pages fetch on the server, and all calls live in `src/lib/`.
+
+## Run
+
+Start registry (8000), weather (8001) and planner (8002), then:
+
+```
+cp .env.example .env.local
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Settings
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Rule |
+|---|---|
+| `REGISTRY_URL` | required, `http://` or `https://` URL |
+| `WEATHER_URL` | required, used only for the status line |
+| `PLANNER_URL` | required, used for the plan |
 
-## Learn More
+A missing or invalid variable gives an error that names the variable, never its value. `.env.local` is not committed.
 
-To learn more about Next.js, take a look at the following resources:
+Timeouts are fixed in `src/lib/config.ts`: plan 25 s (the planner can take 16.3 s), registry 5 s, health 1.5 s.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## The credit
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The forecast comes from Open-Meteo, whose licence requires the credit "Weather data by Open-Meteo.com" with a link. It is shown, linked, directly under the plan. Do not remove it.
 
-## Deploy on Vercel
+## Demo tip: the planting date
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Every seed plot is past its crop cycle, so every plan shows the `planting_date_past_cycle` warning. To see a plan without it, change a planting date in the registry:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+curl -X PATCH http://127.0.0.1:8000/v1/plots/<plot-id> \
+  -H 'content-type: application/json' \
+  -d '{"planting_date": "2026-09-01"}'
+```
+
+Use a date within the crop's cycle before today.
+
+## Tests
+
+```
+npm test
+npm run lint
+npm run build
+```
+
+The tests cover the pure helpers: date formatting (the day never shifts with the machine time zone), forecast age, warning texts, error mapping and config. They need no running service.
