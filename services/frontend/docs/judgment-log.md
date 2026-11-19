@@ -43,3 +43,10 @@ Each entry: what the AI tools suggested or the open question they raised, what I
 - **Decided:** "Weather data by Open-Meteo.com", linked to https://open-meteo.com/, right under the day cards. It is not shown on the main page or on an error page.
 - **Why:** the licence requires the credit next to the data, and the planner's README says `forecast.source` is `open-meteo` and a frontend must show it next to the plan. A footer is far from the numbers on a long page.
 - **Cost:** none. On an error page there is no data, so no credit is needed.
+
+## 7. The status line lives in a template, not in the layout
+
+- **Suggested:** the status line was first put in the root layout, next to the header. Alternatives for keeping it fresh: (A) the layout, (B) `template.tsx`, (C) a client component that calls `router.refresh()` on every navigation.
+- **Decided:** option B. The `<main>` wrapper and the status line are in `src/app/template.tsx`. The layout keeps only the page shell and the header.
+- **Why:** a layout is not rendered again on client-side navigation, so after a click from the main page to a plot the footer kept the state from the first load and could show a service as up when it was down. A template is given a new key and rendered again on each navigation. The user found this in a manual check.
+- **Cost:** the health check runs on every navigation, up to 1.5 s in the Suspense fallback, never blocking the page. A template re-renders when its route segment changes, so a click on "Try again" for the same page is the case to watch. Option C would be more reliable, but it adds a client component.

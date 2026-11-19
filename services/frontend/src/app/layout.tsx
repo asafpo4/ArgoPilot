@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { Bricolage_Grotesque } from "next/font/google";
 import "./globals.css";
-import { StatusLine } from "@/components/status-line";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -25,12 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             AgroPilot
           </div>
         </header>
-        <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6">
-          {children}
-        </main>
-        <Suspense fallback={<footer className="h-12 border-t border-border bg-muted" />}>
-          <StatusLine />
-        </Suspense>
+        {children}
       </body>
     </html>
   );
