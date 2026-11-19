@@ -479,7 +479,7 @@ def test_patch_when_plot_is_deleted_before_the_update_returns_404(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def delete_during_check(conn, *args):
-        conn.execute("DELETE FROM plots WHERE id = ?", (NORTH_BLOCK,))
+        conn.execute("DELETE FROM plots WHERE id = :id", {"id": NORTH_BLOCK})
 
     monkeypatch.setattr(plots, "check_references", delete_during_check)
 

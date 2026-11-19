@@ -11,7 +11,7 @@ from main import app
 def test_real_sqlite_path_reads_and_writes_a_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # No get_db override: this goes through get_db -> connect_target -> connect.
+    # No get_db override: this goes through get_db -> open_connection.
     copy = tmp_path / "registry.db"
     shutil.copy(DB_PATH, copy)
     original = DB_PATH.read_bytes()

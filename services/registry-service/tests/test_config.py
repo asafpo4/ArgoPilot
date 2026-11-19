@@ -1,16 +1,20 @@
-import os
 import traceback
 from pathlib import Path
 
+import pydantic
 import pytest
 
+import config
+from fakes import exception_chain
 from config import (
     DEFAULT_SQLITE_PATH,
+    SERVICE_DIR,
     ConfigError,
     PostgresTarget,
     SqliteTarget,
-    load_environment,
+    load_settings,
     parse_database_url,
+    postgres_connect_args,
     same_database,
 )
 
@@ -72,17 +76,54 @@ def test_same_database_rules():
     assert not same_database("sqlite:///a.db", base)
 
 
-def test_load_environment_fills_missing_but_never_overrides(tmp_path, monkeypatch):
+PG_URL = "postgresql://registry:pw@db.internal:5432/registry"
+
+
+def test_settings_read_dot_env_when_no_real_variable(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
-    env_file.write_text("CFG_TEST_A=1\nCFG_TEST_B=2\n")
-    monkeypatch.delenv("CFG_TEST_A", raising=False)
-    monkeypatch.setenv("CFG_TEST_B", "keep")
-    load_environment(env_file)
-    try:
-        assert os.environ["CFG_TEST_A"] == "1"
-        assert os.environ["CFG_TEST_B"] == "keep"
-    finally:
-        os.environ.pop("CFG_TEST_A", None)
+    env_file.write_text("DATABASE_URL=sqlite:///x.db\n")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert load_settings(env_file).target == SqliteTarget(SERVICE_DIR / "x.db")
+
+
+def test_real_variable_beats_dot_env(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"DATABASE_URL={PG_URL}\n")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///a.db")
+    assert load_settings(env_file).target == SqliteTarget(SERVICE_DIR / "a.db")
+
+
+def test_empty_real_variable_beats_dot_env_and_means_default_sqlite(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"DATABASE_URL={PG_URL}\n")
+    monkeypatch.setenv("DATABASE_URL", "")
+    assert load_settings(env_file).target == SqliteTarget(DEFAULT_SQLITE_PATH)
+
+
+def test_other_keys_in_dot_env_are_ignored(tmp_path, monkeypatch):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TEST_DATABASE_URL=postgresql://x@h/t\nFOO=1\n")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert load_settings(env_file).target == SqliteTarget(DEFAULT_SQLITE_PATH)
+
+
+def test_invalid_value_raises_config_error_without_the_value(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:s3cret@h:99999/db")
+    with pytest.raises(ConfigError) as info:
+        load_settings(Path("/nonexistent/.env"))
+    assert "s3cret" not in str(info.value)
+    assert "s3cret" not in "".join(traceback.format_exception(info.value))
+
+
+def test_connect_args_set_timeouts_and_append_to_existing_options():
+    args = postgres_connect_args("postgresql://u@h/db?options=-csearch_path%3Dx")
+    assert args["connect_timeout"] == 5
+    assert args["options"] == "-csearch_path=x -c lock_timeout=5000"
+
+
+def test_connect_args_without_options_set_only_the_lock_timeout():
+    args = postgres_connect_args("postgresql://u@h/db")
+    assert args["options"] == "-c lock_timeout=5000"
 
 
 @pytest.mark.parametrize(
@@ -297,3 +338,96 @@ def test_same_database_cannot_read_a_port_that_is_not_plain_digits():
     assert not same_database("postgresql://u@localhost:+5432/registry", "postgresql://u@localhost/registry")
     assert not same_database("postgresql://u@localhost/registry?port=%205432", "postgresql://u@localhost/registry")
     assert same_database("postgresql://u@localhost:05432/registry", "postgresql://u@localhost/registry")
+
+
+def test_settings_repr_and_str_never_show_the_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:PWMARKER9z@db.internal:5432/registry")
+    settings = load_settings(Path("/nonexistent/.env"))
+    assert settings.DATABASE_URL  # The value is there, so a leak in repr or str would show.
+    assert "Settings" in repr(settings)
+    for text in (repr(settings), str(settings)):
+        assert "PWMARKER9z" not in text
+        assert "db.internal" not in text
+
+
+# Each URL below reaches a different place that raises ConfigError.
+CONFIG_ERROR_URLS = [
+    "postgresql://u:PWMARKER9z\u2100@127.0.0.1:1/db",  # urlsplit rejects it (NFKC), ValueError
+    "postgresql://u:PWMARKER9z%zz@127.0.0.1:1/db",  # libpq cannot read it
+    "mysql://u:PWMARKER9z@h/db",  # unsupported scheme
+    "sqlite://u:PWMARKER9z@h/x.db",  # sqlite with a host part
+]
+
+
+@pytest.mark.parametrize("url", CONFIG_ERROR_URLS)
+def test_config_error_chain_has_no_context_and_no_secret(url):
+    with pytest.raises(ConfigError) as info:
+        parse_database_url(url)
+    assert exception_chain(info.value) == [info.value]
+    assert info.value.__context__ is None
+    assert "PWMARKER9z" not in str(info.value)
+    assert "PWMARKER9z" not in "".join(traceback.format_exception(info.value))
+
+
+@pytest.mark.parametrize("url", CONFIG_ERROR_URLS)
+def test_startup_settings_error_chain_has_no_context_and_no_secret(url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", url)
+    with pytest.raises(ConfigError) as info:
+        load_settings(Path("/nonexistent/.env"))
+    assert exception_chain(info.value) == [info.value]
+    assert "PWMARKER9z" not in "".join(traceback.format_exception(info.value))
+
+
+# Remaining lines and branches of config.py, one test per behaviour.
+
+
+def test_repr_of_a_url_libpq_cannot_parse_shows_nothing():
+    secret_url = "postgresql://u:secr%zzet@127.0.0.1:1/db"
+    target = PostgresTarget(secret_url)
+    assert str(target) == "postgresql://***"
+    assert repr(target) == "PostgresTarget(url='postgresql://***')"
+
+
+def test_repr_puts_an_ipv6_host_in_brackets():
+    assert str(PostgresTarget("postgresql://u:pw@[::1]/db")) == "postgresql://u:***@[::1]/db"
+
+
+def test_repr_masks_a_password_that_has_no_user():
+    assert str(PostgresTarget("postgresql://:pw@h/db")) == "postgresql://:***@h/db"
+
+
+def test_repr_shows_nothing_when_the_database_name_holds_part_of_a_password(monkeypatch):
+    # libpq reads this URL's database name as "Secret@127.0.0.1:1/db". The consistency check
+    # normally rejects it first, so it is switched off to reach the name check.
+    monkeypatch.setattr(config, "_libpq_agrees_with_urlsplit", lambda url: True)
+    target = PostgresTarget("postgresql://user:2024/Secret@127.0.0.1:1/db")
+    assert str(target) == "postgresql://***"
+    assert repr(target) == "PostgresTarget(url='postgresql://***')"
+
+
+def test_load_settings_turns_a_pydantic_validation_error_into_a_config_error(monkeypatch):
+    class Strict(pydantic.BaseModel):
+        value: int
+
+    def failing_settings(**kwargs):
+        Strict(value="SECRET-VALUE")  # raises a real ValidationError that holds the input
+
+    monkeypatch.setattr(config, "Settings", failing_settings)
+    with pytest.raises(ConfigError) as info:
+        load_settings(Path("/nonexistent/.env"))
+    assert str(info.value) == "Invalid settings"
+    assert exception_chain(info.value) == [info.value]
+    assert "SECRET-VALUE" not in "".join(traceback.format_exception(info.value))
+
+
+def test_port_list_shorter_than_the_host_list_is_rejected():
+    # Two hosts from ?host=, one port in the netloc: libpq counts 2 ports, the netloc has 1.
+    _assert_fixed_error("postgresql://:1/db?host=a,b&port=1,2", ["a,b", "1,2"])
+
+
+def test_query_port_that_differs_from_the_netloc_port_is_rejected():
+    _assert_fixed_error("postgresql://u@h:5432/db?port=5433", ["5433"])
+
+
+def test_more_ports_than_hosts_is_rejected():
+    _assert_fixed_error("postgresql://u@h/db?port=1,2", ["1,2"])

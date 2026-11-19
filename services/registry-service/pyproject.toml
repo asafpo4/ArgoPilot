@@ -6,7 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi~=0.115",
     "psycopg[binary]~=3.3",
-    "python-dotenv>=1.2.4",
+    "pydantic-settings~=2.16",
+    "sqlalchemy~=2.1",
     "uvicorn~=0.32",
 ]
 
@@ -20,4 +21,13 @@ pythonpath = ["."]
 dev = [
     "httpx~=0.28",
     "pytest~=9.2",
+    "pytest-cov>=7.1.0",
 ]
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100

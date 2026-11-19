@@ -7,9 +7,13 @@ from pathlib import Path
 
 import psycopg
 import pytest
+import sqlalchemy as sa
 
-from db import DB_PATH
+from config import parse_database_url
+from db import DB_PATH, create_engine_for
+from seeding import seed_postgres
 from pg_support import (
+    TestEnv,
     capture_developer_database_url,
     check_comparable_test_url,
     check_not_developer_database,
@@ -20,10 +24,36 @@ SERVICE_DIR = Path(__file__).resolve().parent.parent
 TABLES = ["farms", "crops", "soils", "emitters", "plots"]
 
 
-def test_capture_ignores_empty_and_returns_value() -> None:
-    assert capture_developer_database_url({}) is None
-    assert capture_developer_database_url({"DATABASE_URL": ""}) is None
-    assert capture_developer_database_url({"DATABASE_URL": "postgresql://h/d"}) == "postgresql://h/d"
+def test_capture_ignores_empty_and_returns_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert capture_developer_database_url() is None
+    monkeypatch.setenv("DATABASE_URL", "")
+    assert capture_developer_database_url() is None
+    monkeypatch.setenv("DATABASE_URL", "postgresql://h/d")
+    assert capture_developer_database_url() == "postgresql://h/d"
+
+
+def test_urls_kept_only_in_dot_env_are_seen_by_the_test_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("TEST_DATABASE_URL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("DATABASE_URL=postgresql://dev@devhost/registry\n"
+                        "TEST_DATABASE_URL=postgresql://t@testhost/t\n")
+    assert capture_developer_database_url(env_file) == "postgresql://dev@devhost/registry"
+    assert TestEnv(_env_file=env_file).TEST_DATABASE_URL == "postgresql://t@testhost/t"
+
+
+def test_safety_check_refuses_a_developer_url_kept_only_in_dot_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("DATABASE_URL=postgresql://dev@devhost/registry\n")
+    developer = capture_developer_database_url(env_file)
+    with pytest.raises(pytest.fail.Exception, match="^refusing to run"):
+        check_not_developer_database("postgresql://dev@devhost/registry", developer)
 
 
 def test_check_refuses_on_match() -> None:
@@ -114,10 +144,9 @@ def schema_connection(base_url: str, schema: str) -> psycopg.Connection:
 
 
 def test_schema_script_fails_on_second_run(pg_base_url: str, pg_schema: str) -> None:
-    script = (SERVICE_DIR / "sql" / "postgres_schema.sql").read_text()
-    with schema_connection(pg_base_url, pg_schema) as conn:
-        with pytest.raises(psycopg.errors.DuplicateTable):
-            conn.execute(script)
+    engine = create_engine_for(parse_database_url(with_options(pg_base_url, f"-csearch_path={pg_schema}")))
+    with pytest.raises(sa.exc.ProgrammingError):
+        seed_postgres(engine)
 
 
 def test_pg_schema_contains_demo_data(pg_base_url: str, pg_schema: str) -> None:

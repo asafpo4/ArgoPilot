@@ -1,21 +1,44 @@
 """Helpers for the PostgreSQL test fixtures."""
 
-from collections.abc import Mapping
+from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import pytest
 from psycopg.conninfo import conninfo_to_dict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from config import same_database, valid_port
+from config import SERVICE_DIR, SqliteTarget, parse_database_url, same_database, valid_port
+from db import Connection, create_engine_for, open_connection
 
 SCHEMA_PREFIX = "test_"
+
+
+def sqlite_connection(path: Path) -> Connection:
+    return open_connection(create_engine_for(SqliteTarget(path)))
+
+
+def postgres_connection(url: str) -> Connection:
+    return open_connection(create_engine_for(parse_database_url(url)))
 
 # Set once by pytest_configure in conftest.py, before any fixture runs.
 DEVELOPER_DATABASE_URL: str | None = None
 
 
-def capture_developer_database_url(environ: Mapping[str, str]) -> str | None:
-    value = environ.get("DATABASE_URL")
+class TestEnv(BaseSettings):
+    """Raw test settings: no validation, so a bad URL cannot stop the test session."""
+
+    __test__ = False  # Not a test class, whatever pytest thinks of the name.
+
+    model_config = SettingsConfigDict(env_file=SERVICE_DIR / ".env", extra="ignore")
+
+    DATABASE_URL: str | None = None
+    TEST_DATABASE_URL: str | None = None
+
+
+def capture_developer_database_url(env_file: Path | None = None) -> str | None:
+    # Reads the environment and .env, as the service does, before the autouse fixture overwrites it.
+    path = env_file if env_file is not None else TestEnv.model_config["env_file"]
+    value = TestEnv(_env_file=path).DATABASE_URL
     return value if value else None
 
 

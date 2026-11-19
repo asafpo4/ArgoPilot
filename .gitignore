@@ -27,5 +27,5 @@ htmlcov/
 !.vscode/launch.json
 registry.db
 
-/.claude/
+/.claude/skills/skill-creator/
 /skills-lock.json

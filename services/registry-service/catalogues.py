@@ -20,7 +20,7 @@ def list_crops(conn: Annotated[db.Connection, Depends(get_db)]) -> list[dict[str
 def get_crop(crop_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str]:
     if contains_nul(crop_id):
         raise HTTPException(status_code=404, detail="Crop not found")
-    row = conn.execute("SELECT id, name FROM crops WHERE id = ?", (crop_id,)).fetchone()
+    row = conn.execute("SELECT id, name FROM crops WHERE id = :id", {"id": crop_id}).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Crop not found")
     return dict(row)
@@ -39,7 +39,7 @@ def get_soil(soil_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> d
     if contains_nul(soil_id):
         raise HTTPException(status_code=404, detail="Soil not found")
     row = conn.execute(
-        "SELECT id, name, available_water_mm_per_m FROM soils WHERE id = ?", (soil_id,)
+        "SELECT id, name, available_water_mm_per_m FROM soils WHERE id = :id", {"id": soil_id}
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Soil not found")
@@ -57,7 +57,7 @@ def get_emitter(emitter_id: str, conn: Annotated[db.Connection, Depends(get_db)]
     if contains_nul(emitter_id):
         raise HTTPException(status_code=404, detail="Emitter not found")
     row = conn.execute(
-        "SELECT id, name, flow_lph FROM emitters WHERE id = ?", (emitter_id,)
+        "SELECT id, name, flow_lph FROM emitters WHERE id = :id", {"id": emitter_id}
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Emitter not found")

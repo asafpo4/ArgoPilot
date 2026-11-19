@@ -79,7 +79,9 @@ def test_list_order_is_byte_order(client: TestClient, database: TestDatabase) ->
     conn = database.connect()
     try:
         for farm_id in new_ids:
-            conn.execute("INSERT INTO farms (id, name) VALUES (?, ?)", (farm_id, f"Farm {farm_id}"))
+            conn.execute(
+                "INSERT INTO farms (id, name) VALUES (:id, :name)", {"id": farm_id, "name": f"Farm {farm_id}"}
+            )
         conn.commit()
     finally:
         conn.close()
@@ -196,3 +198,13 @@ def test_connection_uses_expected_settings(database: TestDatabase) -> None:
 
     assert lock_timeout["lock_timeout"] == "5s"
     assert search_path["search_path"].startswith("test_")
+
+
+def test_literal_percent_in_sql_works_on_both_backends(database: TestDatabase) -> None:
+    conn = database.connect()
+    try:
+        row = conn.execute("SELECT '100%' AS v").fetchone()
+    finally:
+        conn.close()
+
+    assert row["v"] == "100%"

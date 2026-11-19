@@ -153,3 +153,25 @@ def test_delete_unknown_farm_returns_404_not_found(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json()["code"] == "NOT_FOUND"
+
+
+def test_farm_name_with_colon_and_percent_roundtrips(client: TestClient) -> None:
+    name = "50% :off %s :name"
+    created = client.post("/v1/farms", json={"name": name})
+
+    assert created.status_code == 201
+    read_back = client.get(f"/v1/farms/{created.json()['id']}")
+    assert read_back.status_code == 200
+    assert read_back.json()["name"] == name
+
+
+def test_lone_surrogate_name_returns_422_validation(client: TestClient) -> None:
+    # The JSON text holds the six characters \ud800, which decode to a lone surrogate.
+    response = client.post(
+        "/v1/farms", content='{"name": "\\ud800"}', headers={"content-type": "application/json"}
+    )
+
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == "VALIDATION"
+    assert response.json()["detail"] == "Text contains invalid characters"

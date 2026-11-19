@@ -40,7 +40,7 @@ def test_nul_lookup_values_keep_todays_answers(
     recorded: list[tuple[str, object]] = []
     original_execute = db.Connection.execute
 
-    def spy(self, sql, params=()):  # type: ignore[no-untyped-def]
+    def spy(self, sql, params=None):  # type: ignore[no-untyped-def]
         recorded.append((sql, params))
         return original_execute(self, sql, params)
 
@@ -74,11 +74,15 @@ def test_nul_lookup_values_keep_todays_answers(
             assert response.status_code == 404, (method, url)
             assert response.json()["detail"] == EXPECTED_DETAIL[path], (method, url)
 
+    # Control: the spy sees the named parameters of a normal request, so the check below can fail.
+    assert client.get(f"/v1/farms/{DEMO_COOPERATIVE}").status_code == 200
+    assert recorded[-1][1] == {"id": DEMO_COOPERATIVE}
+
     # The answer must come before any query: no query ever received a NUL.
     nul_queries = [
         (sql, params)
         for sql, params in recorded
-        if any(isinstance(value, str) and "\x00" in value for value in params)
+        if any(isinstance(value, str) and "\x00" in value for value in (params or {}).values())
     ]
     assert nul_queries == []
 

@@ -36,7 +36,7 @@ def list_farms(conn: Annotated[db.Connection, Depends(get_db)]) -> list[dict[str
 def get_farm(farm_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str]:
     if contains_nul(farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
-    row = conn.execute("SELECT id, name FROM farms WHERE id = ?", (farm_id,)).fetchone()
+    row = conn.execute("SELECT id, name FROM farms WHERE id = :id", {"id": farm_id}).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Farm not found")
     return dict(row)
@@ -45,7 +45,7 @@ def get_farm(farm_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -> d
 @router.post("/farms", status_code=201)
 def create_farm(body: FarmCreate, conn: Annotated[db.Connection, Depends(get_db)]) -> dict[str, str]:
     farm_id = str(uuid.uuid4())
-    conn.execute("INSERT INTO farms (id, name) VALUES (?, ?)", (farm_id, body.name))
+    conn.execute("INSERT INTO farms (id, name) VALUES (:id, :name)", {"id": farm_id, "name": body.name})
     conn.commit()
     return {"id": farm_id, "name": body.name}
 
@@ -58,9 +58,11 @@ def update_farm(
         raise HTTPException(status_code=404, detail="Farm not found")
     changes = body.model_dump(exclude_unset=True)
     if "name" in changes:
-        conn.execute("UPDATE farms SET name = ? WHERE id = ?", (changes["name"], farm_id))
+        conn.execute(
+            "UPDATE farms SET name = :name WHERE id = :id", {"name": changes["name"], "id": farm_id}
+        )
         conn.commit()
-    row = conn.execute("SELECT id, name FROM farms WHERE id = ?", (farm_id,)).fetchone()
+    row = conn.execute("SELECT id, name FROM farms WHERE id = :id", {"id": farm_id}).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Farm not found")
     return dict(row)
@@ -71,7 +73,7 @@ def delete_farm(farm_id: str, conn: Annotated[db.Connection, Depends(get_db)]) -
     if contains_nul(farm_id):
         raise HTTPException(status_code=404, detail="Farm not found")
     try:
-        cursor = conn.execute("DELETE FROM farms WHERE id = ?", (farm_id,))
+        cursor = conn.execute("DELETE FROM farms WHERE id = :id", {"id": farm_id})
         conn.commit()
     except IntegrityViolation:
         # A plot still refers to this farm, so the foreign key refuses the delete.
