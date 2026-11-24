@@ -64,8 +64,33 @@ jobs:
             sudo systemctl enable registry.service
             sudo systemctl restart registry.service
 
-            for i in $(seq 1 15); do
-              curl -fsS http://127.0.0.1:8000/health && exit 0
-              sleep 2
+            cd /home/ubuntu/ArgoPilot/services/weather-service
+            /home/ubuntu/.local/bin/uv sync --locked
+            cp .env.example .env
+            chmod 600 .env
+            sudo cp weather.service /etc/systemd/system/weather.service
+
+            cd /home/ubuntu/ArgoPilot/services/planner-service
+            /home/ubuntu/.local/bin/uv sync --locked
+            cp .env.example .env
+            chmod 600 .env
+            sudo cp planner.service /etc/systemd/system/planner.service
+
+            sudo systemctl daemon-reload
+            sudo systemctl enable weather.service planner.service
+            sudo systemctl restart weather.service planner.service
+
+            for port in 8000 8001 8002; do
+              ok=0
+              for i in $(seq 1 15); do
+                if curl -fsS http://127.0.0.1:$port/health > /dev/null; then
+                  ok=1
+                  break
+                fi
+                sleep 2
+              done
+              if [ "$ok" != 1 ]; then
+                echo "the service on port $port did not become healthy"
+                exit 1
+              fi
             done
-            exit 1
