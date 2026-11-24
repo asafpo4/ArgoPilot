@@ -4,6 +4,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/ubuntu/ArgoPilot/services/frontend
+User=ubuntu
 Environment=PORT=3000
 ExecStart=/usr/bin/npm run start
 Restart=on-failure
