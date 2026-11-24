@@ -47,4 +47,4 @@ app.add_exception_handler(Exception, unexpected_error_handler)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "broken"}
