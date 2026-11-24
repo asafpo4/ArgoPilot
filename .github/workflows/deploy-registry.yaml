@@ -16,6 +16,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
+            DB_PASSWORD=$(printf '%s' '${{ secrets.DB_PASSWORD }}' | tr -d '\r\n')
             if ! command -v docker >/dev/null 2>&1; then
               sudo apt-get update
               sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
@@ -25,7 +26,7 @@ jobs:
             if ! sudo docker ps -a --format '{{.Names}}' | grep -qx registry-db; then
               sudo docker run -d --name registry-db --restart unless-stopped \
                 -e POSTGRES_USER=registry \
-                -e POSTGRES_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+                -e POSTGRES_PASSWORD="$DB_PASSWORD" \
                 -e POSTGRES_DB=registry \
                 -v registry-pgdata:/var/lib/postgresql/data \
                 -p 127.0.0.1:5432:5432 \
@@ -51,7 +52,7 @@ jobs:
             fi
             /home/ubuntu/.local/bin/uv sync --locked
 
-            printf 'DATABASE_URL=postgresql://registry:%s@127.0.0.1:5432/registry\n' '${{ secrets.DB_PASSWORD }}' > .env
+            printf 'DATABASE_URL=postgresql://registry:%s@127.0.0.1:5432/registry\n' "$DB_PASSWORD" > .env
             chmod 600 .env
 
             if [ -z "$(sudo docker exec registry-db psql -U registry -d registry -tAc "SELECT to_regclass('public.farms')")" ]; then
