@@ -80,6 +80,21 @@ jobs:
             sudo systemctl enable weather.service planner.service
             sudo systemctl restart weather.service planner.service
 
+            if ! command -v npm >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm
+            fi
+
+            cd /home/ubuntu/ArgoPilot/services/frontend
+            cp .env.example .env.local
+            chmod 600 .env.local
+            npm ci
+            npm run build
+            sudo cp frontend.service /etc/systemd/system/frontend.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable frontend.service
+            sudo systemctl restart frontend.service
+
             for port in 8000 8001 8002; do
               ok=0
               for i in $(seq 1 15); do
@@ -94,3 +109,12 @@ jobs:
                 exit 1
               fi
             done
+
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3000/ > /dev/null; then
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "the frontend did not become healthy"
+            exit 1
