@@ -16,9 +16,30 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
+
+            if [ ! -d /home/ubuntu/ArgoPilot/.git ]; then
+              git clone https://github.com/asafpo4/ArgoPilot.git /home/ubuntu/ArgoPilot
+            fi
             cd /home/ubuntu/ArgoPilot
             git fetch origin main
             git reset --hard ${{ github.sha }}
             cd services/registry-service
+
+            if [ ! -x /home/ubuntu/.local/bin/uv ]; then
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+            fi
             /home/ubuntu/.local/bin/uv sync --locked
+
+            printf 'DATABASE_URL=%s\n' '${{ secrets.DATABASE_URL }}' > .env
+            chmod 600 .env
+
+            sudo cp registry.service /etc/systemd/system/registry.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable registry.service
             sudo systemctl restart registry.service
+
+            for i in $(seq 1 15); do
+              curl -fsS http://127.0.0.1:8000/health && exit 0
+              sleep 2
+            done
+            exit 1
