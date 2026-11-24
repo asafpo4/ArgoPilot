@@ -16,6 +16,27 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
+            if ! command -v docker >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+            fi
+            sudo systemctl enable --now docker
+
+            if ! sudo docker ps -a --format '{{.Names}}' | grep -qx registry-db; then
+              sudo docker run -d --name registry-db --restart unless-stopped \
+                -e POSTGRES_USER=registry \
+                -e POSTGRES_PASSWORD='${{ secrets.DB_PASSWORD }}' \
+                -e POSTGRES_DB=registry \
+                -v registry-pgdata:/var/lib/postgresql/data \
+                -p 127.0.0.1:5432:5432 \
+                postgres:17
+            fi
+            sudo docker start registry-db
+
+            for i in $(seq 1 30); do
+              sudo docker exec registry-db pg_isready -U registry && break
+              sleep 1
+            done
 
             if [ ! -d /home/ubuntu/ArgoPilot/.git ]; then
               git clone https://github.com/asafpo4/ArgoPilot.git /home/ubuntu/ArgoPilot
