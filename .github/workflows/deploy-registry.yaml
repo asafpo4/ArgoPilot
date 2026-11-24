@@ -51,8 +51,12 @@ jobs:
             fi
             /home/ubuntu/.local/bin/uv sync --locked
 
-            printf 'DATABASE_URL=%s\n' '${{ secrets.DATABASE_URL }}' > .env
+            printf 'DATABASE_URL=postgresql://registry:%s@127.0.0.1:5432/registry\n' '${{ secrets.DB_PASSWORD }}' > .env
             chmod 600 .env
+
+            if [ -z "$(sudo docker exec registry-db psql -U registry -d registry -tAc "SELECT to_regclass('public.farms')")" ]; then
+              /home/ubuntu/.local/bin/uv run python scripts/seed.py
+            fi
 
             sudo cp registry.service /etc/systemd/system/registry.service
             sudo systemctl daemon-reload
