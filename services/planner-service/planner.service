@@ -1,0 +1,11 @@
+[Unit]
+Description=AgroPilot planner-service
+After=network.target
+
+[Service]
+WorkingDirectory=/home/ubuntu/ArgoPilot/services/planner-service
+ExecStart=/home/ubuntu/ArgoPilot/services/planner-service/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8002
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
