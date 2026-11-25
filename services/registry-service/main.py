@@ -17,6 +17,7 @@ from errors import (
     validation_exception_handler,
 )
 from farms import router as farms_router
+from photos import router as photos_router
 from plots import router as plots_router
 from validation import InvalidTextError
 
@@ -37,6 +38,7 @@ app = FastAPI(title="AgroPilot registry-service", version="0.1.0", lifespan=life
 app.include_router(catalogues_router)
 app.include_router(farms_router)
 app.include_router(plots_router)
+app.include_router(photos_router)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(DatabaseUnavailable, database_unavailable_handler)

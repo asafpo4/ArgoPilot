@@ -28,6 +28,7 @@ VALID_PLOT_FIELDS = {
 EXPECTED_DETAIL = {
     "/v1/farms/{farm_id}": "Farm not found",
     "/v1/plots/{plot_id}": "Plot not found",
+    "/v1/plots/{plot_id}/photo": "Plot not found",
     "/v1/crops/{crop_id}": "Crop not found",
     "/v1/soils/{soil_id}": "Soil not found",
     "/v1/emitters/{emitter_id}": "Emitter not found",
@@ -57,13 +58,16 @@ def test_nul_lookup_values_keep_todays_answers(
             if has_path_id or query_ids:
                 sites.append((method.upper(), path, query_ids))
 
-    assert len(sites) == 10
+    assert len(sites) == 12
 
     for method, path, query_ids in sites:
         url = re.sub(r"\{[^}]+\}", "a%00b", path)
         if query_ids:
             url += "?" + "&".join(f"{name}=a%00b" for name in query_ids)
         kwargs = {"json": {"name": "x"}} if method == "PATCH" else {}
+        if method == "POST" and path.endswith("/photo"):
+            # A valid file, so the request reaches the plot lookup instead of failing validation.
+            kwargs = {"files": {"file": ("north.jpg", b"jpeg", "image/jpeg")}}
 
         response = client.request(method, url, **kwargs)
 

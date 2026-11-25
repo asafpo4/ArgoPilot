@@ -53,6 +53,7 @@ jobs:
             /home/ubuntu/.local/bin/uv sync --locked
 
             printf 'DATABASE_URL=postgresql://registry:%s@127.0.0.1:5432/registry\n' "$DB_PASSWORD" > .env
+            printf 'AWS_REGION=us-east-1\nAWS_S3_BUCKET=asaf-agropilot-photos\n' >> .env
             chmod 600 .env
 
             if [ -z "$(sudo docker exec registry-db psql -U registry -d registry -tAc "SELECT to_regclass('public.farms')")" ]; then
