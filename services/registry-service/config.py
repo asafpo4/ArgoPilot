@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     # repr=False: the URL can hold a password, and repr and str must never show it.
     DATABASE_URL: str | None = Field(default=None, repr=False)
 
+    # The S3 bucket for plot photos and its region. Never credentials: boto3 finds those itself.
+    AWS_S3_BUCKET: str | None = None
+    AWS_REGION: str | None = None
+
     @field_validator("DATABASE_URL")
     @classmethod
     def database_url_is_valid(cls, value: str | None) -> str | None:

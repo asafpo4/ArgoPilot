@@ -9,7 +9,9 @@ from db import DatabaseUnavailable
 
 # The code for each HTTP status we return. Any other status raises KeyError,
 # and the unexpected error handler turns it into a 500.
-CODE_BY_STATUS = {404: "NOT_FOUND", 405: "VALIDATION", 409: "CONFLICT", 422: "VALIDATION"}
+CODE_BY_STATUS = {
+    404: "NOT_FOUND", 405: "VALIDATION", 409: "CONFLICT", 422: "VALIDATION", 503: "UNAVAILABLE",
+}
 
 
 def problem_response(
